@@ -31,9 +31,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var DoDetectVolume bool
-var DoDetectOnly bool
-var DoCrop bool
+var DetectVolume bool
+var DetectOnly bool
+var Crop bool
 var OutputPath = "D:\\Media\\Movies [Reencoded]\\"
 var AudioRate int // k
 var AudioCodec string
@@ -102,13 +102,13 @@ func getKeyValuesFromCommand(cmd *exec.Cmd) (map[string]string, error) {
 		text := scanner.Text()
 		key, value := getKeyStringValue(text)
 		keyValues[key] = value
-		fmt.Printf("%s\n", text)
+		// fmt.Printf("%s\n", text)
 	}
 	return keyValues, scanner.Err()
 }
 
 func (input *Video) initVideo() (int, int) {
-	fmt.Print("---------- Get video info ----------\n")
+	fmt.Print("Get video info\n")
 	ffprobCmd := exec.Command("ffprobe",
 		"-v", "error",
 		"-select_streams", "v:0",
@@ -137,7 +137,7 @@ func (input *Video) initVideo() (int, int) {
 }
 
 func (input *Video) initAudio() {
-	fmt.Print("---------- Get audio info ----------\n")
+	fmt.Print("Get audio info\n")
 	ffprobCmd := exec.Command("ffprobe",
 		"-v", "error",
 		"-select_streams", "a:0",
@@ -207,8 +207,6 @@ func (output *Video) initOutput(input Video) {
 		output.cropRight = input.width - (input.cropX + input.cropWidth)
 	}
 	// Copy audio by default
-	audioRate := input.audioRate
-	audioChannels := input.audioChannels
 	output.audioRate = 0
 	output.audioChannels = 0
 	output.audioCodec = "copy"
@@ -216,16 +214,14 @@ func (output *Video) initOutput(input Video) {
 	if AudioRate > 0 && (input.audioRate == 0 || AudioRate < input.audioRate) {
 		output.audioRate = AudioRate
 		output.audioCodec = "ac3"
-		audioRate = output.audioRate
 	}
 	// If audio channels are specified default to AC3
 	if AudioChannels > 0 && AudioChannels != input.audioChannels {
 		output.audioChannels = AudioChannels
 		output.audioCodec = "ac3"
-		audioChannels = output.audioChannels
 	}
 	// If audio requires encoding for 2 channels default to AAC
-	if output.audioCodec != "copy" && audioChannels == 2 {
+	if output.audioCodec != "copy" && output.audioChannels == 2 {
 		output.audioCodec = "aac"
 	}
 	// If codec is specified overrule them all
@@ -233,7 +229,7 @@ func (output *Video) initOutput(input Video) {
 		output.audioCodec = AudioCodec
 	}
 	if FileSize > 0 {
-		output.rate = int((float64(FileSize) * 8192 / input.duration) - float64(audioRate))
+		output.rate = int((float64(FileSize) * 8192 / input.duration) - float64(output.audioRate))
 	}
 }
 
@@ -326,12 +322,12 @@ var encodeCmd = &cobra.Command{
 		output := Video{}
 		input.file = args[0]
 		output.file = OutputPath + filepath.Base(strings.TrimSuffix(input.file, filepath.Ext(input.file))) + ".720p.mp4"
-		if DoDetectVolume {
+		if DetectVolume {
 			input.initDetectVolume()
 		}
 		input.initVideo()
 		input.initAudio()
-		if DoCrop {
+		if Crop {
 			input.initCropDetect()
 		}
 		output.initOutput(input)
@@ -361,7 +357,7 @@ var encodeCmd = &cobra.Command{
 		fmt.Printf("Output audio channels: %d\n", output.audioChannels)
 		fmt.Printf("\n%+v\n\n", ffmpegCmd)
 
-		if DoDetectOnly || DoDetectVolume {
+		if DetectOnly || DetectVolume {
 			os.Exit(0)
 		}
 
@@ -377,9 +373,9 @@ var encodeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(encodeCmd)
-	encodeCmd.Flags().BoolVarP(&DoDetectVolume, "detect-volume", "", false, "Detect volume")
-	encodeCmd.Flags().BoolVarP(&DoDetectOnly, "detect-only", "", false, "Show video info")
-	encodeCmd.Flags().BoolVarP(&DoCrop, "crop", "c", false, "Crop black bars")
+	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", false, "Detect volume")
+	encodeCmd.Flags().BoolVarP(&DetectOnly, "detect-only", "", false, "Show video info")
+	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", false, "Crop black bars")
 	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", 0, "Output file size (MB)")
 	encodeCmd.Flags().IntVarP(&AudioRate, "audio-rate", "", 0, "Audio rate (k)")
 	encodeCmd.Flags().StringVarP(&AudioCodec, "audio-codec", "", "", "Audio codec")
