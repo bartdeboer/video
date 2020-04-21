@@ -28,13 +28,15 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/spf13/viper"
+
 	"github.com/spf13/cobra"
 )
 
 var DetectVolume bool
 var DryRun bool
 var Crop bool
-var OutputPath = "D:\\Media\\Movies [Reencoded]\\"
+var OutputPath string
 var Rate int
 var Codec string
 var AudioRate int // k
@@ -53,6 +55,10 @@ var Sizes = map[string]int{
 	"1080p": 1920,
 	"1440p": 2560,
 	"2160p": 3840,
+}
+var decoders = map[string]string{
+	"hevc": "hevc_cuvid",
+	"h264": "h264_cuvid",
 }
 var DrawTitle bool
 
@@ -196,11 +202,18 @@ func (input *Video) initAudio() {
 
 func (input *Video) initCropDetect() (int, int, int, int) {
 	fmt.Print("Detecting black bars\n")
-	ffmpegCmd := exec.Command("ffmpeg",
+	var args []string
+	args = append(args,
 		"-y", "-hide_banner",
-		"-hwaccel", "cuda",
-		// "-hwaccel_output_format", "cuda",
-		"-c:v", "h264_cuvid",
+	)
+	if decoder, ok := decoders[input.codec]; ok {
+		args = append(args,
+			"-hwaccel", "cuda",
+			// "-hwaccel_output_format", "cuda",
+			"-c:v", decoder,
+		)
+	}
+	args = append(args,
 		"-i", input.file,
 		"-vf", "fps=1/60,cropdetect=24:16:0",
 		"-to", "600",
@@ -208,6 +221,7 @@ func (input *Video) initCropDetect() (int, int, int, int) {
 		"-f", "null",
 		getNullDevice(),
 	)
+	ffmpegCmd := exec.Command("ffmpeg", args...)
 	out, _ := ffmpegCmd.CombinedOutput()
 	// fmt.Printf("Crop Detect: %s\n", string(out))
 	r, _ := regexp.Compile("crop=([0-9]+):([0-9]+):([0-9]+):([0-9]+)")
@@ -299,11 +313,13 @@ func getEncodeCommand(input Video, output *Video) *exec.Cmd {
 		"-y", "-hide_banner",
 	)
 	// Start options for -i input.file
-	args = append(args,
-		"-hwaccel", "cuda",
-		"-hwaccel_output_format", "cuda",
-		"-c:v", "h264_cuvid",
-	)
+	if decoder, ok := decoders[input.codec]; ok {
+		args = append(args,
+			"-hwaccel", "cuda",
+			"-hwaccel_output_format", "cuda",
+			"-c:v", decoder,
+		)
+	}
 	if input.cropHeight > 0 {
 		args = append(args,
 			"-crop", (strconv.FormatInt(int64(output.cropTop), 10) +
@@ -320,6 +336,9 @@ func getEncodeCommand(input Video, output *Video) *exec.Cmd {
 	}
 	args = append(args, "-i", input.file)
 	// Start output options
+	// args = append(args, "-map", "0:s?")
+	// args = append(args, "-map", "0:v?")
+	// args = append(args, "-map", "0:a?")
 	if output.seek > 0 {
 		args = append(args, "-ss", strconv.FormatFloat(output.seek, 'f', -1, 64))
 	}
@@ -345,8 +364,6 @@ func getEncodeCommand(input Video, output *Video) *exec.Cmd {
 		"-cq:v", "20",
 		"-profile:v", "main",
 		"-max_muxing_queue_size", "800",
-		// "-to", "600",
-		// "-af", "pan=stereo|FL < 1.0*FL + 0.707*FC + 0.707*BL|FR < 1.0*FR + 0.707*FC + 0.707*BR",
 	)
 	if output.rate > 0 {
 		args = append(args,
@@ -362,8 +379,11 @@ func getEncodeCommand(input Video, output *Video) *exec.Cmd {
 	if output.audioChannels > 0 {
 		args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
 	}
+	// Start subtitle output options
+	args = append(args, "-c:s", "copy")
+	args = append(args, "-map", "0")
 	// Ouput file
-	output.file = getSafePath(OutputPath + output.baseName + "." + Size + "." + Extension)
+	output.file = getSafePath(viper.GetString("encode.OutputPath") + output.baseName + "." + Size + "." + Extension)
 	args = append(args, output.file)
 	return exec.Command("ffmpeg", args...)
 }
@@ -374,18 +394,20 @@ var encodeCmd = &cobra.Command{
 	Short: "Encode a video",
 	Long:  "Encode a video using ffmpeg",
 	Run: func(cmd *cobra.Command, args []string) {
-		if Preset == "telegram" {
-			Size = "720p"
-			FileSize = 1500 // max 1536
-			AudioRate = 128
-			AudioChannels = 2
-			AudioCodec = "aac"
-			DrawTitle = true
-		}
 		var ffmpegCmd *exec.Cmd
 		input := Video{}
 		output := Video{}
 		input.file = args[0]
+
+		if Preset == "telegram" {
+			Size = "720p"
+			FileSize = 1490 // max 1536
+			AudioRate = 128
+			AudioChannels = 2
+			AudioCodec = "aac"
+			DrawTitle = true
+			Extension = "mp4"
+		}
 
 		if DetectVolume {
 			input.initDetectVolume()
@@ -457,6 +479,9 @@ func init() {
 	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", "", "Preset (telegram)")
 	encodeCmd.Flags().Float64VarP(&Seek, "seek", "", 0, "Seek (seconds)")
 	encodeCmd.Flags().Float64VarP(&Duration, "duration", "", 0, "Duration (seconds)")
-	encodeCmd.Flags().StringVarP(&Extension, "extension", "", "mp4", "File extension")
+	encodeCmd.Flags().StringVarP(&Extension, "extension", "", "mkv", "File extension")
 	encodeCmd.Flags().BoolVarP(&DrawTitle, "draw-title", "", false, "Draw Title")
+	encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", "", "Output path folder")
+
+	viper.BindPFlag("encode.OutputPath", encodeCmd.Flags().Lookup("output-path"))
 }
