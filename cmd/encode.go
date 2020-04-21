@@ -1,5 +1,5 @@
 /*
-Copyright © 2020 NAME HERE <EMAIL ADDRESS>
+Copyright © 2020 Bart C.C. de Boer <bart.deboer@gmail.com>
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -32,15 +32,20 @@ import (
 )
 
 var DetectVolume bool
-var DetectOnly bool
+var DryRun bool
 var Crop bool
 var OutputPath = "D:\\Media\\Movies [Reencoded]\\"
+var Rate int
+var Codec string
 var AudioRate int // k
 var AudioCodec string
 var AudioChannels int
 var FileSize int // MB
 var Size string
 var Preset string
+var Seek float64
+var Duration float64
+var Extension string
 var Sizes = map[string]int{
 	"480p":  720,
 	"576p":  720,
@@ -49,14 +54,18 @@ var Sizes = map[string]int{
 	"1440p": 2560,
 	"2160p": 3840,
 }
+var DrawTitle bool
 
 type Video struct {
 	file          string
+	baseName      string
 	width         int
 	height        int
+	seek          float64
 	duration      float64
 	rate          int
 	codec         string
+	pixelFormat   string
 	audioRate     int
 	audioCodec    string
 	audioChannels int
@@ -69,6 +78,21 @@ type Video struct {
 	cropBottom    int
 	cropLeft      int
 	cropRight     int
+	title         string
+	year          string
+	sceneInfo     string
+}
+
+func getSafePath(path string) string {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	safePath := base + ext
+	_, err := os.Stat(safePath)
+	for i := 1; err == nil; i++ {
+		safePath = base + "." + strconv.FormatInt(int64(i), 10) + ext
+		_, err = os.Stat(safePath)
+	}
+	return safePath
 }
 
 func getNullDevice() string {
@@ -109,6 +133,18 @@ func getKeyValuesFromCommand(cmd *exec.Cmd) (map[string]string, error) {
 
 func (input *Video) initVideo() (int, int) {
 	fmt.Print("Get video info\n")
+	input.baseName = filepath.Base(strings.TrimSuffix(input.file, filepath.Ext(input.file)))
+	// r, _ := regexp.Compile("\\[^\\]]*\\]")
+	// r, _ := regexp.Compile("\\.[0-9]{4}\\.(.*)$")
+	r, _ := regexp.Compile("^(.*)\\.([0-9]{4})\\.(.*)$")
+	submatches := r.FindStringSubmatch(input.baseName)
+	if len(submatches) == 4 {
+		input.title = submatches[1]
+		input.year = submatches[2]
+		input.sceneInfo = submatches[3]
+		input.baseName = input.title + "." + input.year
+	}
+	input.baseName = r.ReplaceAllString(input.baseName, "")
 	ffprobCmd := exec.Command("ffprobe",
 		"-v", "error",
 		"-select_streams", "v:0",
@@ -132,6 +168,7 @@ func (input *Video) initVideo() (int, int) {
 	input.cropHeight = int(height)
 	input.duration = duration
 	input.codec = keyValues["codec_name"]
+	input.pixelFormat = keyValues["pix_fmt"]
 	input.rate = int(rate / 1000)
 	return int(width), int(height)
 }
@@ -191,8 +228,13 @@ func (input *Video) initCropDetect() (int, int, int, int) {
 }
 
 func (output *Video) initOutput(input Video) {
+	output.baseName = input.baseName
 	output.width = input.width
 	output.height = input.height
+	output.rate = Rate
+	output.codec = Codec
+	output.seek = Seek
+	output.duration = Duration
 	if outputWidth, ok := Sizes[Size]; ok {
 		output.width = outputWidth
 		resizeRatio := float64(output.width) / float64(input.width)
@@ -210,17 +252,19 @@ func (output *Video) initOutput(input Video) {
 	output.audioRate = 0
 	output.audioChannels = 0
 	output.audioCodec = "copy"
-	// If audio rate is specified default to AC3
+	// If audio rate is specified (and lower than input rate)
 	if AudioRate > 0 && (input.audioRate == 0 || AudioRate < input.audioRate) {
 		output.audioRate = AudioRate
+		// default to AC3
 		output.audioCodec = "ac3"
 	}
-	// If audio channels are specified default to AC3
+	// If audio channels are specified
 	if AudioChannels > 0 && AudioChannels != input.audioChannels {
 		output.audioChannels = AudioChannels
+		// default to AC3
 		output.audioCodec = "ac3"
 	}
-	// If audio requires encoding for 2 channels default to AAC
+	// If 2 audio channels default to AAC
 	if output.audioCodec != "copy" && output.audioChannels == 2 {
 		output.audioCodec = "aac"
 	}
@@ -249,31 +293,54 @@ func (input *Video) initDetectVolume() /* float64 */ {
 	fmt.Println(r.FindString(string(out)))
 }
 
-func getEncodeCommand(input Video, output Video) *exec.Cmd {
+func getEncodeCommand(input Video, output *Video) *exec.Cmd {
 	var args []string
 	args = append(args,
 		"-y", "-hide_banner",
+	)
+	// Start options for -i input.file
+	args = append(args,
 		"-hwaccel", "cuda",
 		"-hwaccel_output_format", "cuda",
 		"-c:v", "h264_cuvid",
 	)
 	if input.cropHeight > 0 {
 		args = append(args,
-			"-crop", strconv.FormatInt(int64(output.cropTop), 10)+
-				"x"+strconv.FormatInt(int64(output.cropBottom), 10)+
-				"x"+strconv.FormatInt(int64(output.cropLeft), 10)+
-				"x"+strconv.FormatInt(int64(output.cropRight), 10),
+			"-crop", (strconv.FormatInt(int64(output.cropTop), 10) +
+				"x" + strconv.FormatInt(int64(output.cropBottom), 10) +
+				"x" + strconv.FormatInt(int64(output.cropLeft), 10) +
+				"x" + strconv.FormatInt(int64(output.cropRight), 10)),
 		)
 	}
 	if input.width != output.width {
 		args = append(args,
-			"-resize", strconv.FormatInt(int64(output.width), 10)+
-				"x"+strconv.FormatInt(int64(output.height), 10),
+			"-resize", (strconv.FormatInt(int64(output.width), 10) +
+				"x" + strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
 	args = append(args, "-i", input.file)
+	// Start output options
+	if output.seek > 0 {
+		args = append(args, "-ss", strconv.FormatFloat(output.seek, 'f', -1, 64))
+	}
+	if output.duration > 0 {
+		args = append(args, "-t", strconv.FormatFloat(output.duration, 'f', -1, 64))
+	}
+	if DrawTitle {
+		title := strings.ToUpper(strings.Replace(input.title, ".", " ", -1))
+		drawtext := "enable='between(t,0,3)':" +
+			"fontfile=/Windows/Fonts/impact.ttf:" +
+			"text='" + title + "':" +
+			"fontsize=72:" +
+			"fontcolor=ffffff:" +
+			"alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))':" +
+			"x=(w-text_w)/2:" +
+			"y=(h-text_h)/2"
+		args = append(args, "-filter_complex", ("hwdownload,format=nv12,drawtext=" + drawtext + ",hwupload_cuda"))
+	}
+	// Start video output options
 	args = append(args,
-		"-c:v", "h264_nvenc",
+		"-c:v", output.codec,
 		"-rc:v", "vbr_hq",
 		"-cq:v", "20",
 		"-profile:v", "main",
@@ -281,26 +348,23 @@ func getEncodeCommand(input Video, output Video) *exec.Cmd {
 		// "-to", "600",
 		// "-af", "pan=stereo|FL < 1.0*FL + 0.707*FC + 0.707*BL|FR < 1.0*FR + 0.707*FC + 0.707*BR",
 	)
-
 	if output.rate > 0 {
 		args = append(args,
-			"-b:v", strconv.FormatInt(int64(output.rate), 10)+"k",
-			"-maxrate:v", strconv.FormatInt(int64(output.rate*2), 10)+"k",
+			"-b:v", (strconv.FormatInt(int64(output.rate), 10) + "k"),
+			"-maxrate:v", (strconv.FormatInt(int64(output.rate*2), 10) + "k"),
 		)
 	}
-
+	// Start audio output options
 	args = append(args, "-c:a", output.audioCodec)
-
 	if output.audioRate > 0 {
-		args = append(args, "-b:a", strconv.FormatInt(int64(output.audioRate), 10)+"k")
+		args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
 	}
-
 	if output.audioChannels > 0 {
 		args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
 	}
-
+	// Ouput file
+	output.file = getSafePath(OutputPath + output.baseName + "." + Size + "." + Extension)
 	args = append(args, output.file)
-
 	return exec.Command("ffmpeg", args...)
 }
 
@@ -312,16 +376,17 @@ var encodeCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		if Preset == "telegram" {
 			Size = "720p"
-			FileSize = 1450
+			FileSize = 1500 // max 1536
 			AudioRate = 128
 			AudioChannels = 2
 			AudioCodec = "aac"
+			DrawTitle = true
 		}
 		var ffmpegCmd *exec.Cmd
 		input := Video{}
 		output := Video{}
 		input.file = args[0]
-		output.file = OutputPath + filepath.Base(strings.TrimSuffix(input.file, filepath.Ext(input.file))) + ".720p.mp4"
+
 		if DetectVolume {
 			input.initDetectVolume()
 		}
@@ -332,32 +397,38 @@ var encodeCmd = &cobra.Command{
 		}
 		output.initOutput(input)
 
-		ffmpegCmd = getEncodeCommand(input, output)
+		ffmpegCmd = getEncodeCommand(input, &output)
 
 		fmt.Printf("Input file: %s\n", input.file)
+		fmt.Printf("Input title: %s\n", input.title)
+		fmt.Printf("Input year: %s\n", input.year)
+		fmt.Printf("Input scene info: %s\n", input.sceneInfo)
+		fmt.Printf("Input seek: %f\n", input.seek)
 		fmt.Printf("Input duration: %f\n", input.duration)
 		fmt.Printf("Input video codec: %s\n", input.codec)
+		fmt.Printf("Input pixel format: %s\n", input.pixelFormat)
 		fmt.Printf("Input width: %d\n", input.width)
 		fmt.Printf("Input height: %d\n", input.height)
-		fmt.Printf("Input video rate: %d\n", input.rate)
+		fmt.Printf("Input video rate: %dk\n", input.rate)
 		fmt.Printf("Input audio codec: %s\n", input.audioCodec)
-		fmt.Printf("Input audio rate: %d\n", input.audioRate)
+		fmt.Printf("Input audio rate: %dk\n", input.audioRate)
 		fmt.Printf("Input audio channels: %d\n", input.audioChannels)
 		fmt.Printf("Input audio channel layout: %s\n", input.audioLayout)
 		fmt.Printf("Output file: %s\n", output.file)
+		fmt.Printf("Output codec: %s\n", output.codec)
+		fmt.Printf("Output rate: %dk\n", output.rate)
 		fmt.Printf("Output width: %d\n", output.width)
 		fmt.Printf("Output height: %d\n", output.height)
-		fmt.Printf("Output rate: %d\n", output.rate)
 		fmt.Printf("Output crop top: %d\n", output.cropTop)
 		fmt.Printf("Output crop bottom: %d\n", output.cropBottom)
 		fmt.Printf("Output crop left: %d\n", output.cropLeft)
 		fmt.Printf("Output crop right: %d\n", output.cropRight)
 		fmt.Printf("Output audio codec: %s\n", output.audioCodec)
-		fmt.Printf("Output audio rate: %d\n", output.audioRate)
+		fmt.Printf("Output audio rate: %dk\n", output.audioRate)
 		fmt.Printf("Output audio channels: %d\n", output.audioChannels)
 		fmt.Printf("\n%+v\n\n", ffmpegCmd)
 
-		if DetectOnly || DetectVolume {
+		if DryRun || DetectVolume {
 			os.Exit(0)
 		}
 
@@ -374,12 +445,18 @@ var encodeCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(encodeCmd)
 	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", false, "Detect volume")
-	encodeCmd.Flags().BoolVarP(&DetectOnly, "detect-only", "", false, "Show video info")
+	encodeCmd.Flags().BoolVarP(&DryRun, "dry-run", "", false, "Dry Run")
 	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", false, "Crop black bars")
-	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", 0, "Output file size (MB)")
-	encodeCmd.Flags().IntVarP(&AudioRate, "audio-rate", "", 0, "Audio rate (k)")
-	encodeCmd.Flags().StringVarP(&AudioCodec, "audio-codec", "", "", "Audio codec")
-	encodeCmd.Flags().IntVarP(&AudioChannels, "audio-channels", "", 0, "Audio codec")
-	encodeCmd.Flags().StringVarP(&Size, "size", "s", "", "Output resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)")
+	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", 0, "Target file size (MB)")
+	encodeCmd.Flags().StringVarP(&Codec, "codec:v", "", "h264_nvenc", "(ffmpeg c:v) Video codec")
+	encodeCmd.Flags().IntVarP(&Rate, "bitrate:v", "", 0, "(ffmpeg b:v) Video bitrate (k)")
+	encodeCmd.Flags().StringVarP(&AudioCodec, "codec:a", "", "", "(ffmpeg c:a) Audio codec")
+	encodeCmd.Flags().IntVarP(&AudioRate, "bitrate:a", "", 0, "(ffmpeg b:a) Audio bitrate (k)")
+	encodeCmd.Flags().IntVarP(&AudioChannels, "audio-channels", "", 0, "Number of output audio channels")
+	encodeCmd.Flags().StringVarP(&Size, "size", "s", "", "Resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)")
 	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", "", "Preset (telegram)")
+	encodeCmd.Flags().Float64VarP(&Seek, "seek", "", 0, "Seek (seconds)")
+	encodeCmd.Flags().Float64VarP(&Duration, "duration", "", 0, "Duration (seconds)")
+	encodeCmd.Flags().StringVarP(&Extension, "extension", "", "mp4", "File extension")
+	encodeCmd.Flags().BoolVarP(&DrawTitle, "draw-title", "", false, "Draw Title")
 }
