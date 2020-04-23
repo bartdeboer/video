@@ -39,7 +39,7 @@ This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	// Uncomment the following line if your bare application
 	// has an action associated with it:
-	//	Run: func(cmd *cobra.Command, args []string) { },
+	// Run: func(cmd *cobra.Command, args []string) {},
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -52,7 +52,7 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
+	// cobra.OnInitialize(initConfig)
 
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
@@ -63,6 +63,43 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+
+	initConfig()
+
+	rootCmd.AddCommand(encodeCmd)
+
+	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", "", "Preset (telegram)")
+
+	if Preset == "telegram" {
+		Size = "720p"
+		FileSize = 1490 // max 1536
+		AudioRate = 128
+		AudioChannels = 2
+		AudioCodec = "aac"
+		DrawTitle = true
+		Extension = "mp4"
+	}
+
+	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", false, "Detect volume")
+	encodeCmd.Flags().BoolVarP(&DryRun, "dry-run", "", false, "Dry Run")
+	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", false, "Crop black bars")
+	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", 0, "Target file size (MB)")
+	encodeCmd.Flags().StringVarP(&Codec, "codec:v", "", "h264_nvenc", "(ffmpeg c:v) Video codec")
+	encodeCmd.Flags().IntVarP(&Rate, "bitrate:v", "", 0, "(ffmpeg b:v) Video bitrate (k)")
+	encodeCmd.Flags().StringVarP(&AudioCodec, "codec:a", "", "", "(ffmpeg c:a) Audio codec")
+	encodeCmd.Flags().IntVarP(&AudioRate, "bitrate:a", "", 0, "(ffmpeg b:a) Audio bitrate (k)")
+	encodeCmd.Flags().IntVarP(&AudioChannels, "audio-channels", "", 0, "Number of output audio channels")
+	encodeCmd.Flags().StringVarP(&Size, "size", "s", "", "Resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)")
+	encodeCmd.Flags().Float64VarP(&Seek, "seek", "", 0, "Seek (seconds)")
+	encodeCmd.Flags().Float64VarP(&Duration, "duration", "", 0, "Duration (seconds)")
+	encodeCmd.Flags().StringVarP(&Extension, "extension", "", "mkv", "File extension")
+	encodeCmd.Flags().BoolVarP(&DrawTitle, "draw-title", "", false, "Draw Title")
+
+	// rootCmd.Flags().StringVarP(&configFile, "configFile", "c", "", fmt.Sprintf("config file (default is ~/%s.%s)", defaultConfigFilename, defaultConfigExt))
+
+	encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", "", fmt.Sprintf("Output path (default is %s)", viper.GetString("encode.OutputPath")))
+
+	viper.BindPFlag("encode.OutputPath", encodeCmd.Flags().Lookup("output-path"))
 }
 
 // initConfig reads in config file and ENV variables if set.
