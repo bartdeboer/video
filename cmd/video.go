@@ -105,6 +105,7 @@ func NewVideo() *Video {
 
 func NewVideoFromFile(file string) *Video {
 	video := NewVideo()
+	video.file = file
 	video.detectVideo()
 	video.detectAudio()
 	return video

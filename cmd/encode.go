@@ -24,8 +24,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/spf13/viper"
-
 	"github.com/spf13/cobra"
 )
 
@@ -188,7 +186,7 @@ func getEncodeCommand(input *Video, output *Video) *exec.Cmd {
 	// args = append(args, "-c:s", "copy")
 	// args = append(args, "-map", "0")
 	// Ouput file
-	output.file = getSafePath(filepath.Join(viper.GetString("encode.OutputPath"),
+	output.file = getSafePath(filepath.Join(OutputPath,
 		(output.baseName + "." + output.size + "." + output.extension)),
 	)
 	args = append(args, output.file)

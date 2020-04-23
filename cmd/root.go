@@ -51,6 +51,15 @@ func Execute() {
 	}
 }
 
+func indexOfOsArgs(search string) int {
+	for i, value := range os.Args {
+		if value == (search) {
+			return i
+		}
+	}
+	return -1
+}
+
 func init() {
 	// cobra.OnInitialize(initConfig)
 
@@ -68,7 +77,15 @@ func init() {
 
 	rootCmd.AddCommand(encodeCmd)
 
-	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", "", "Preset (telegram)")
+	if argIndex := indexOfOsArgs("--preset"); argIndex != -1 {
+		valueIndex := argIndex + 1
+		if valueIndex < len(os.Args) {
+			Preset = os.Args[valueIndex]
+		}
+	}
+
+	Codec = "h264_nvenc"
+	OutputPath = viper.GetString("encode.OutputPath")
 
 	if Preset == "telegram" {
 		Size = "720p"
@@ -80,26 +97,28 @@ func init() {
 		Extension = "mp4"
 	}
 
-	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", false, "Detect volume")
-	encodeCmd.Flags().BoolVarP(&DryRun, "dry-run", "", false, "Dry Run")
-	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", false, "Crop black bars")
-	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", 0, "Target file size (MB)")
-	encodeCmd.Flags().StringVarP(&Codec, "codec:v", "", "h264_nvenc", "(ffmpeg c:v) Video codec")
-	encodeCmd.Flags().IntVarP(&Rate, "bitrate:v", "", 0, "(ffmpeg b:v) Video bitrate (k)")
-	encodeCmd.Flags().StringVarP(&AudioCodec, "codec:a", "", "", "(ffmpeg c:a) Audio codec")
-	encodeCmd.Flags().IntVarP(&AudioRate, "bitrate:a", "", 0, "(ffmpeg b:a) Audio bitrate (k)")
-	encodeCmd.Flags().IntVarP(&AudioChannels, "audio-channels", "", 0, "Number of output audio channels")
-	encodeCmd.Flags().StringVarP(&Size, "size", "s", "", "Resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)")
-	encodeCmd.Flags().Float64VarP(&Seek, "seek", "", 0, "Seek (seconds)")
-	encodeCmd.Flags().Float64VarP(&Duration, "duration", "", 0, "Duration (seconds)")
-	encodeCmd.Flags().StringVarP(&Extension, "extension", "", "mkv", "File extension")
-	encodeCmd.Flags().BoolVarP(&DrawTitle, "draw-title", "", false, "Draw Title")
+	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", Preset, "Preset (telegram)")
+	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", DetectVolume, "Detect volume")
+	encodeCmd.Flags().BoolVarP(&DryRun, "dry-run", "", DryRun, "Dry Run")
+	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", Crop, "Crop black bars")
+	encodeCmd.Flags().IntVarP(&FileSize, "file-size", "f", FileSize, "Target file size (MB)")
+	encodeCmd.Flags().StringVarP(&Codec, "codec:v", "", Codec, "(ffmpeg c:v) Video codec")
+	encodeCmd.Flags().IntVarP(&Rate, "bitrate:v", "", Rate, "(ffmpeg b:v) Video bitrate (k)")
+	encodeCmd.Flags().StringVarP(&AudioCodec, "codec:a", "", AudioCodec, "(ffmpeg c:a) Audio codec")
+	encodeCmd.Flags().IntVarP(&AudioRate, "bitrate:a", "", AudioRate, "(ffmpeg b:a) Audio bitrate (k)")
+	encodeCmd.Flags().IntVarP(&AudioChannels, "audio-channels", "", AudioChannels, "Number of output audio channels")
+	encodeCmd.Flags().StringVarP(&Size, "size", "s", Size, "Resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)")
+	encodeCmd.Flags().Float64VarP(&Seek, "seek", "", Seek, "Seek (seconds)")
+	encodeCmd.Flags().Float64VarP(&Duration, "duration", "", Duration, "Duration (seconds)")
+	encodeCmd.Flags().StringVarP(&Extension, "extension", "", Extension, "File extension")
+	encodeCmd.Flags().BoolVarP(&DrawTitle, "draw-title", "", DrawTitle, "Draw Title")
 
 	// rootCmd.Flags().StringVarP(&configFile, "configFile", "c", "", fmt.Sprintf("config file (default is ~/%s.%s)", defaultConfigFilename, defaultConfigExt))
 
-	encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", "", fmt.Sprintf("Output path (default is %s)", viper.GetString("encode.OutputPath")))
+	// encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", "", fmt.Sprintf("Output path (default is %s)", viper.GetString("encode.OutputPath")))
+	encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", OutputPath, "Output path")
 
-	viper.BindPFlag("encode.OutputPath", encodeCmd.Flags().Lookup("output-path"))
+	// viper.BindPFlag("encode.OutputPath", encodeCmd.Flags().Lookup("output-path"))
 }
 
 // initConfig reads in config file and ENV variables if set.
