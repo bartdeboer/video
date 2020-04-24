@@ -84,8 +84,10 @@ func init() {
 		}
 	}
 
-	Codec = "h264_nvenc"
+	Codec = viper.GetString("encode.Codec")
 	OutputPath = viper.GetString("encode.OutputPath")
+	Extension = viper.GetString("encode.Extension")
+	FontFile = viper.GetString("encode.FontFile")
 
 	if Preset == "telegram" {
 		Size = "720p"
@@ -136,6 +138,7 @@ func initConfig() {
 
 		// Search config in home directory with name ".video" (without extension).
 		viper.AddConfigPath(home)
+		viper.AddConfigPath(".")
 		viper.SetConfigName(".video")
 	}
 
@@ -145,15 +148,15 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err == nil {
 		fmt.Println("Using config file:", viper.ConfigFileUsed())
 	} else {
-		viper.SetConfigType("yaml")
-		viper.Set("encode.OutputPath", "")
-		viper.Set("encode.Codec", "h264_nvenc")
-		viper.Set("encode.Extension", "mp4")
-		viper.Set("encode.FontFile", "/Windows/Fonts/impact.ttf")
-		fmt.Println("Using config file:", viper.ConfigFileUsed())
-		fmt.Println("Write default config")
-		if err := viper.SafeWriteConfig(); err != nil {
-			fmt.Println(err)
-		}
+		// viper.SetConfigType("yaml")
+		// viper.Set("encode.OutputPath", "")
+		// viper.Set("encode.Codec", "h264_nvenc")
+		// viper.Set("encode.Extension", "mp4")
+		// viper.Set("encode.FontFile", "/Windows/Fonts/impact.ttf")
+		// fmt.Println("Using config file:", viper.ConfigFileUsed())
+		// fmt.Println("Write default config")
+		// if err := viper.SafeWriteConfig(); err != nil {
+		// 	fmt.Println(err)
+		// }
 	}
 }

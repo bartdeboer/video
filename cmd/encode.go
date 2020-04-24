@@ -43,6 +43,7 @@ var Seek float64
 var Duration float64
 var Extension string
 var DrawTitle bool
+var FontFile string
 
 func getSafePath(path string) string {
 	ext := filepath.Ext(path)
@@ -149,7 +150,7 @@ func getEncodeCommand(input *Video, output *Video) *exec.Cmd {
 	if DrawTitle {
 		title := strings.ToUpper(strings.Replace(input.title, ".", " ", -1))
 		drawtext := "enable='between(t,0,3)':" +
-			"fontfile=/Windows/Fonts/impact.ttf:" +
+			"fontfile=" + FontFile + ":" +
 			"text='" + title + "':" +
 			"fontsize=72:" +
 			"fontcolor=ffffff:" +
