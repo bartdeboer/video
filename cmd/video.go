@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -279,4 +280,179 @@ func (input *Video) detectVolume() /* float64 */ {
 	out, _ := ffmpegCmd.CombinedOutput()
 	r, _ := regexp.Compile("max_volume:[^\\n]+")
 	fmt.Println(r.FindString(string(out)))
+}
+
+func (input *Video) NewOutputVideo() *Video {
+	output := NewVideoFromVideo(input)
+	output.setSize(initial.Size)
+	output.setEncodeCodec(initial.Codec)
+	output.audioRate = 0
+	output.audioChannels = 0
+	output.audioCodec = "copy"
+	output.rate = initial.Rate
+	output.seek = initial.Seek
+	if initial.Duration > 0 {
+		output.duration = initial.Duration
+	}
+	// If audio rate is specified (and lower than input rate)
+	if initial.AudioRate > 0 && (input.audioRate == 0 || initial.AudioRate < input.audioRate) {
+		output.audioRate = initial.AudioRate
+		// default to AC3
+		output.audioCodec = "ac3"
+	}
+	// If audio channels are specified
+	if initial.AudioChannels > 0 && initial.AudioChannels != input.audioChannels {
+		output.audioChannels = initial.AudioChannels
+		// default to AC3
+		output.audioCodec = "ac3"
+	}
+	// If 2 audio channels default to AAC
+	if output.audioCodec != "copy" && output.audioChannels == 2 {
+		output.audioCodec = "aac"
+	}
+	// If codec is specified overrule them all
+	if initial.AudioCodec != "" {
+		output.audioCodec = initial.AudioCodec
+	}
+	if initial.FileSize > 0 {
+		output.setFileSize(initial.FileSize)
+	}
+	if initial.Extension != "" {
+		output.extension = initial.Extension
+	}
+	return output
+}
+
+func getSafePath(path string) string {
+	ext := filepath.Ext(path)
+	base := strings.TrimSuffix(path, ext)
+	safePath := base + ext
+	_, err := os.Stat(safePath)
+	for i := 1; err == nil; i++ {
+		safePath = base + "." + strconv.FormatInt(int64(i), 10) + ext
+		_, err = os.Stat(safePath)
+	}
+	return safePath
+}
+
+func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
+	var args []string
+	args = append(args,
+		"-y", "-hide_banner",
+	)
+	// Start options for -i input.file
+	if strings.Contains(input.codec, "cuvid") {
+		args = append(args,
+			"-hwaccel", "cuda", // cuda, dxva2, qsv, d3d11va, qsv, cuvid
+			"-hwaccel_output_format", "cuda", // cuda, nv12, p010le, p016le
+			// "-pixel_format", "yuv420p",
+			// "-hwaccel", "nvdec",
+			// "-hwaccel_output_format", "yuv420p",
+			// "-hwaccel_output_format", "nv12",
+			// "-hwaccel_output_format", "yuv420p10le",
+			// "-pix_fmt", "yuv420p",
+			// "-c:v", input.codec,
+		)
+	}
+	if input.codec != "" {
+		args = append(args,
+			"-c:v", input.codec,
+		)
+	}
+	if (input.cropTop + input.cropBottom + input.cropLeft + input.cropRight) > 0 {
+		args = append(args,
+			"-crop", (strconv.FormatInt(int64(input.cropTop), 10) +
+				"x" + strconv.FormatInt(int64(input.cropBottom), 10) +
+				"x" + strconv.FormatInt(int64(input.cropLeft), 10) +
+				"x" + strconv.FormatInt(int64(input.cropRight), 10)),
+		)
+	}
+	if input.width != output.width {
+		args = append(args,
+			"-resize", (strconv.FormatInt(int64(output.width), 10) +
+				"x" + strconv.FormatInt(int64(output.height), 10)),
+		)
+	}
+	args = append(args, "-i", input.file)
+	// Start output options
+	// args = append(args, "-map", "0:s?")
+	// args = append(args, "-map", "0:v?")
+	// args = append(args, "-map", "0:a?")
+	if output.seek > 0 {
+		args = append(args, "-ss", strconv.FormatFloat(output.seek, 'f', -1, 64))
+	}
+	if output.duration > 0 {
+		args = append(args, "-t", strconv.FormatFloat(output.duration, 'f', -1, 64))
+	}
+	if initial.DrawTitle {
+		title := strings.ToUpper(strings.Replace(input.title, ".", " ", -1))
+		drawtext := "enable='between(t,0,3)':" +
+			"fontfile=" + initial.FontFile + ":" +
+			"text='" + title + "':" +
+			"fontsize=72:" +
+			"fontcolor=ffffff:" +
+			"alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))':" +
+			"x=(w-text_w)/2:" +
+			"y=(h-text_h)/2"
+		args = append(args, "-filter_complex", ("hwdownload,format=nv12,drawtext=" + drawtext + ",hwupload_cuda"))
+	}
+	// Start video output options
+	if output.codec == "h264_nvenc" {
+		args = append(args,
+			"-c:v", output.codec,
+			"-rc:v", "vbr_hq",
+			"-cq:v", "20",
+			"-profile:v", "main",
+			"-max_muxing_queue_size", "800",
+		)
+	} else if output.codec != "" {
+		args = append(args, "-c:v", output.codec)
+	}
+	if output.rate > 0 {
+		args = append(args,
+			"-b:v", (strconv.FormatInt(int64(output.rate), 10) + "k"),
+			"-maxrate:v", (strconv.FormatInt(int64(output.rate*2), 10) + "k"),
+		)
+	}
+	// Start audio output options
+	args = append(args, "-c:a", output.audioCodec)
+	if output.audioRate > 0 {
+		args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
+	}
+	if output.audioChannels > 0 {
+		args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
+	}
+	// Start subtitle output options
+	// args = append(args, "-c:s", "copy")
+	// args = append(args, "-map", "0")
+	// Ouput file
+	output.file = getSafePath(filepath.Join(initial.OutputPath,
+		(output.baseName + "." + output.size + "." + output.extension)),
+	)
+	args = append(args, output.file)
+
+	fmt.Printf("Input file: %s\n", input.file)
+	fmt.Printf("Output file: %s\n", output.file)
+	fmt.Printf("File extension: %s -> %s\n", input.extension, output.extension)
+	fmt.Printf("Title: %s\n", input.title)
+	fmt.Printf("Year: %s\n", input.year)
+	fmt.Printf("Scene info: %s\n", input.sceneInfo)
+	fmt.Printf("Seek: %f\n", input.seek)
+	fmt.Printf("Duration: %f\n", input.duration)
+	fmt.Printf("Pixel format: %s\n", input.pixelFormat)
+	fmt.Printf("Video size: %s -> %s\n", input.size, output.size)
+	fmt.Printf("Video width: %d -> %d\n", input.width, output.width)
+	fmt.Printf("Video height: %d -> %d\n", input.height, output.height)
+	fmt.Printf("Video rate: %dk -> %dk\n", input.rate, output.rate)
+	fmt.Printf("Video codec: %s -> %s\n", input.codec, output.codec)
+	fmt.Printf("Audio codec: %s -> %s\n", input.audioCodec, output.audioCodec)
+	fmt.Printf("Audio rate: %dk -> %dk\n", input.audioRate, output.audioRate)
+	fmt.Printf("Audio channels: %d -> %d\n", input.audioChannels, output.audioChannels)
+	fmt.Printf("Audio channel layout: %s\n", input.audioLayout)
+
+	ffmpegCmd := exec.Command("ffmpeg", args...)
+
+	fmt.Printf("\n%+v\n\n", ffmpegCmd)
+
+	return ffmpegCmd
 }
