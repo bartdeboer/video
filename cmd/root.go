@@ -76,6 +76,7 @@ func init() {
 	initConfig()
 
 	rootCmd.AddCommand(encodeCmd)
+	rootCmd.AddCommand(bulkCmd)
 
 	if argIndex := indexOfOsArgs("--preset"); argIndex != -1 {
 		valueIndex := argIndex + 1
@@ -99,7 +100,17 @@ func init() {
 		Extension = "mp4"
 	}
 
-	encodeCmd.Flags().StringVarP(&Preset, "preset", "p", Preset, "Preset (telegram)")
+	if Preset == "phone" {
+		// Size = "720p"
+		// FileSize = 1490 // max 1536
+		AudioRate = 196
+		AudioChannels = 2
+		AudioCodec = "aac"
+		// DrawTitle = true
+		Extension = "mp4"
+	}
+
+	rootCmd.PersistentFlags().StringVarP(&Preset, "preset", "p", Preset, "Preset (telegram)")
 	encodeCmd.Flags().BoolVarP(&DetectVolume, "detect-volume", "", DetectVolume, "Detect volume")
 	encodeCmd.Flags().BoolVarP(&DryRun, "dry-run", "", DryRun, "Dry Run")
 	encodeCmd.Flags().BoolVarP(&Crop, "crop", "c", Crop, "Crop black bars")
@@ -118,7 +129,7 @@ func init() {
 	// rootCmd.Flags().StringVarP(&configFile, "configFile", "c", "", fmt.Sprintf("config file (default is ~/%s.%s)", defaultConfigFilename, defaultConfigExt))
 
 	// encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", "", fmt.Sprintf("Output path (default is %s)", viper.GetString("encode.OutputPath")))
-	encodeCmd.Flags().StringVarP(&OutputPath, "output-path", "", OutputPath, "Output path")
+	rootCmd.PersistentFlags().StringVarP(&OutputPath, "output-path", "", OutputPath, "Output path")
 
 	// viper.BindPFlag("encode.OutputPath", encodeCmd.Flags().Lookup("output-path"))
 }

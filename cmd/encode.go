@@ -160,7 +160,7 @@ func getEncodeCommand(input *Video, output *Video) *exec.Cmd {
 		args = append(args, "-filter_complex", ("hwdownload,format=nv12,drawtext=" + drawtext + ",hwupload_cuda"))
 	}
 	// Start video output options
-	if output.codec != "" {
+	if output.codec == "h264_nvenc" {
 		args = append(args,
 			"-c:v", output.codec,
 			"-rc:v", "vbr_hq",
@@ -168,6 +168,8 @@ func getEncodeCommand(input *Video, output *Video) *exec.Cmd {
 			"-profile:v", "main",
 			"-max_muxing_queue_size", "800",
 		)
+	} else if output.codec != "" {
+		args = append(args, "-c:v", output.codec)
 	}
 	if output.rate > 0 {
 		args = append(args,
