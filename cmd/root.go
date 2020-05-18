@@ -1,10 +1,14 @@
+// Copyright 2009 Bart de Boer. All rights reserved.
+// Use of this source code is governed by a BSD-style
+// license that can be found in the LICENSE file.
+
 package cmd
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/bartdeboer/mystack/mw/cfg"
+	"github.com/bartdeboer/cfg"
 	"github.com/spf13/cobra"
 )
 
