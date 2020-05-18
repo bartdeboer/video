@@ -97,7 +97,7 @@ type Video struct {
 	cropRight     int
 	title         string
 	year          string
-	sceneInfo     string
+	extraInfo     string
 }
 
 func NewVideo() *Video {
@@ -168,7 +168,7 @@ func (input *Video) detectVideo() (int, int) {
 	if len(submatches) == 4 {
 		input.title = submatches[1]
 		input.year = submatches[2]
-		input.sceneInfo = submatches[3]
+		input.extraInfo = submatches[3]
 		input.baseName = input.title + "." + input.year
 	}
 	input.baseName = r.ReplaceAllString(input.baseName, "")
@@ -373,7 +373,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 				"x" + strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
-	args = append(args, "-i", input.file)
+	if input.file != "" {
+		args = append(args, "-i", input.file)
+	}
 	// Start output options
 	// args = append(args, "-map", "0:s?")
 	// args = append(args, "-map", "0:v?")
@@ -436,10 +438,14 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("File extension: %s -> %s\n", input.extension, output.extension)
 	fmt.Printf("Title: %s\n", input.title)
 	fmt.Printf("Year: %s\n", input.year)
-	fmt.Printf("Scene info: %s\n", input.sceneInfo)
+	fmt.Printf("Extra info: %s\n", input.extraInfo)
 	fmt.Printf("Seek: %f\n", input.seek)
 	fmt.Printf("Duration: %f\n", input.duration)
 	fmt.Printf("Pixel format: %s\n", input.pixelFormat)
+	fmt.Printf("Video crop top: %d\n", input.cropTop)
+	fmt.Printf("Video crop bottom: %d\n", input.cropBottom)
+	fmt.Printf("Video crop left: %d\n", input.cropLeft)
+	fmt.Printf("Video crop right: %d\n", input.cropRight)
 	fmt.Printf("Video size: %s -> %s\n", input.size, output.size)
 	fmt.Printf("Video width: %d -> %d\n", input.width, output.width)
 	fmt.Printf("Video height: %d -> %d\n", input.height, output.height)
