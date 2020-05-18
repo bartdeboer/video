@@ -2,4 +2,4 @@ encode:
   Codec: h264_nvenc
   Extension: mkv
   FontFile: /Windows/Fonts/impact.ttf
-  OutputPath: D:\Media\Movies [Reencoded]
+  OutputPath: D:\output-path
