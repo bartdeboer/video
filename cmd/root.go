@@ -30,6 +30,7 @@ type Config struct {
 	Extension     string  `usage:"File extension"`
 	DrawTitle     bool    `usage:"Draw title (requires reencode)"`
 	FontFile      string  `usage:"Font file"`
+	BurnSubtitles bool    `usage:"Hardcodes the subtitles"`
 }
 
 var initial Config
