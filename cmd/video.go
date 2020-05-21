@@ -390,11 +390,10 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.duration > 0 {
 		args = append(args, "-t", strconv.FormatFloat(output.duration, 'f', -1, 64))
 	}
+
+	filters := []string{}
 	if initial.DrawTitle {
 		title := strings.ToUpper(strings.Replace(input.title, ".", " ", -1))
-		filters := []string{}
-		filters = append(filters, "[0:v]hwdownload")
-		filters = append(filters, "format=nv12[v]")
 		filters = append(filters, fmt.Sprintf("[v]drawtext=enable='between(t,0,3)':"+
 			"fontfile=%s:"+
 			"text='%s':"+
@@ -403,15 +402,22 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			"alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))':"+
 			"x=(w-text_w)/2:"+
 			"y=(h-text_h)/2[v]", initial.FontFile, title))
-		if initial.BurnSubtitles {
-			subFile := strings.ReplaceAll(input.file, "\\", "/")
-			subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
-			filters = append(filters, fmt.Sprintf("[v]subtitles='%s'[v]", subFile))
-		}
+	}
+	if initial.BurnSubtitles {
+		subFile := strings.ReplaceAll(input.file, "\\", "/")
+		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
+		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'[v]", subFile))
+	}
+	if len(filters) > 0 {
+		filters = append([]string{
+			"[0:v]hwdownload",
+			"format=nv12[v]",
+		}, filters...)
 		filters = append(filters, "[v]hwupload_cuda[v]")
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
 		args = append(args, "-map", "[v]", "-map", "0:a")
 	}
+
 	// Start video output options
 	if output.codec == "h264_nvenc" {
 		args = append(args,

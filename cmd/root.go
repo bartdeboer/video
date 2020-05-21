@@ -61,7 +61,7 @@ func indexOfOsArgs(search string) int {
 
 func init() {
 
-	cfg.BindPersistentFlags(rootCmd, "encode", &initial)
+	cfg.BindPersistentFlagsKey("encode", rootCmd, &initial)
 
 	rootCmd.AddCommand(encodeCmd)
 	rootCmd.AddCommand(bulkCmd)
