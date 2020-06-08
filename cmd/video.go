@@ -50,20 +50,24 @@ func getNullDevice() string {
 	return "/dev/null"
 }
 
-func getKeyStringValue(input string) (string, string) {
-	arr := strings.SplitN(string(input), "=", 2)
-	return arr[0], arr[1]
+func getKeyStringValue(input string, sep string) (string, string) {
+	arr := strings.SplitN(string(input), sep, 2)
+	if len(arr) == 2 {
+		return strings.TrimSpace(arr[0]), strings.TrimSpace(arr[1])
+	}
+	return strings.TrimSpace(arr[0]), ""
 }
 
-func getKeyIntValue(input string) (string, int, error) {
-	arr := strings.SplitN(string(input), "=", 2)
+func getKeyIntValue(input string, sep string) (string, int, error) {
+	arr := strings.SplitN(string(input), sep, 2)
 	key := arr[0]
 	value, err := strconv.ParseInt(arr[1], 10, 0)
 	return key, int(value), err
 }
 
-func getKeyValuesFromCommand(cmd *exec.Cmd) (map[string]string, error) {
+func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, error) {
 	stdout, err := cmd.StdoutPipe()
+	// stdout, err := cmd.StderrPipe()
 	if err != nil {
 		log.Fatalf("cmd.StdoutPipe() failed with %s\n", err)
 	}
@@ -71,10 +75,13 @@ func getKeyValuesFromCommand(cmd *exec.Cmd) (map[string]string, error) {
 	scanner := bufio.NewScanner(stdout)
 	cmd.Start()
 	for scanner.Scan() {
-		text := scanner.Text()
-		key, value := getKeyStringValue(text)
-		keyValues[key] = value
+		text := strings.TrimSpace(scanner.Text())
+		if text == "" {
+			continue
+		}
 		// fmt.Printf("%s\n", text)
+		key, value := getKeyStringValue(text, sep)
+		keyValues[key] = value
 	}
 	return keyValues, scanner.Err()
 }
@@ -102,6 +109,7 @@ type Video struct {
 	title         string
 	year          string
 	extraInfo     string
+	volume        string
 }
 
 func NewVideo() *Video {
@@ -185,7 +193,7 @@ func (input *Video) detectVideo() (int, int) {
 		"-of", "default=noprint_wrappers=1",
 		"-i", input.file,
 	)
-	keyValues, err := getKeyValuesFromCommand(ffprobCmd)
+	keyValues, err := getKeyValuesFromCommand(ffprobCmd, "=")
 	if err != nil {
 		log.Fatalf("getKeyValuesFromCommand() failed with %s\n", err)
 	}
@@ -212,7 +220,7 @@ func (input *Video) detectAudio() {
 		"-of", "default=noprint_wrappers=1",
 		"-i", input.file,
 	)
-	keyValues, err := getKeyValuesFromCommand(ffprobCmd)
+	keyValues, err := getKeyValuesFromCommand(ffprobCmd, "=")
 	if err != nil {
 		log.Fatalf("getKeyValuesFromCommand() failed with %s\n", err)
 	}
@@ -275,15 +283,23 @@ func (input *Video) detectVolume() /* float64 */ {
 	ffmpegCmd := exec.Command("ffmpeg",
 		"-hide_banner",
 		"-i", input.file,
-		"-to", "400",
+		// "-to", "400",
 		"-vn",
 		"-filter:a", "volumedetect",
 		"-f", "null",
 		getNullDevice(),
 	)
+	// keyValues, err := getKeyValuesFromCommand(ffmpegCmd, ":")
+	// if err != nil {
+	// 	log.Fatalf("getKeyValuesFromCommand() failed with %s\n", err)
+	// }
+	// input.volume = keyValues["max_volume"]
 	out, _ := ffmpegCmd.CombinedOutput()
+	// fmt.Println(string(out))
 	r, _ := regexp.Compile("max_volume:[^\\n]+")
-	fmt.Println(r.FindString(string(out)))
+	_, value := getKeyStringValue(r.FindString(string(out)), ":")
+	input.volume = value
+	// fmt.Println(r.FindString(string(out)))
 }
 
 func (input *Video) NewOutputVideo() *Video {
@@ -317,6 +333,9 @@ func (input *Video) NewOutputVideo() *Video {
 	// If codec is specified overrule them all
 	if initial.AudioCodec != "" {
 		output.audioCodec = initial.AudioCodec
+	}
+	if initial.DetectVolume && input.volume != "" {
+		output.volume = strings.Trim(output.volume, "-")
 	}
 	if initial.FileSize > 0 {
 		output.setFileSize(initial.FileSize)
@@ -393,7 +412,10 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 
 	filters := []string{}
 	if initial.DrawTitle {
-		title := strings.ToUpper(strings.Replace(input.title, ".", " ", -1))
+		title := strings.ToUpper(strings.Replace(output.title, ".", " ", -1))
+		if initial.Title != "" {
+			title = initial.Title
+		}
 		filters = append(filters, fmt.Sprintf("[v]drawtext=enable='between(t,0,3)':"+
 			"fontfile=%s:"+
 			"text='%s':"+
@@ -404,7 +426,12 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			"y=(h-text_h)/2[v]", initial.FontFile, title))
 	}
 	if initial.BurnSubtitles {
-		subFile := strings.ReplaceAll(input.file, "\\", "/")
+		subFile := input.file
+		srtFile := strings.TrimSuffix(input.file, ("."+input.extension)) + ".srt"
+		if _, err := os.Stat(srtFile); err == nil {
+			subFile = srtFile
+		}
+		subFile = strings.ReplaceAll(subFile, "\\", "/")
 		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
 		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'[v]", subFile))
 	}
@@ -415,7 +442,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		}, filters...)
 		filters = append(filters, "[v]hwupload_cuda[v]")
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
-		args = append(args, "-map", "[v]", "-map", "0:a")
+		args = append(args, "-map", "[v]", "-map", "0:a:0")
 	}
 
 	// Start video output options
@@ -444,6 +471,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.audioChannels > 0 {
 		args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
 	}
+	if output.volume != "" {
+		args = append(args, "-filter:a", fmt.Sprintf("volume=%s", strings.Replace(output.volume, " ", "", -1)))
+	}
 	// Start subtitle output options
 	// args = append(args, "-c:s", "copy")
 	// args = append(args, "-map", "0")
@@ -459,8 +489,8 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("Title: %s\n", input.title)
 	fmt.Printf("Year: %s\n", input.year)
 	fmt.Printf("Extra info: %s\n", input.extraInfo)
-	fmt.Printf("Seek: %f\n", input.seek)
-	fmt.Printf("Duration: %f\n", input.duration)
+	fmt.Printf("Seek: %f -> %f\n", input.seek, output.seek)
+	fmt.Printf("Duration: %f -> %f\n", input.duration, output.duration)
 	fmt.Printf("Pixel format: %s\n", input.pixelFormat)
 	fmt.Printf("Video crop top: %d\n", input.cropTop)
 	fmt.Printf("Video crop bottom: %d\n", input.cropBottom)
@@ -475,6 +505,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("Audio rate: %dk -> %dk\n", input.audioRate, output.audioRate)
 	fmt.Printf("Audio channels: %d -> %d\n", input.audioChannels, output.audioChannels)
 	fmt.Printf("Audio channel layout: %s\n", input.audioLayout)
+	fmt.Printf("Audio volume: %s -> %s\n", input.volume, output.volume)
 
 	ffmpegCmd := exec.Command("ffmpeg", args...)
 

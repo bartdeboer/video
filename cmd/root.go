@@ -15,6 +15,7 @@ import (
 type Config struct {
 	Preset        string  `usage:"Preset (telegram, phone)"`
 	DetectVolume  bool    `usage:"Detect volume"`
+	Volume        string  `usage:"Set volume level"`
 	DryRun        bool    `usage:"Dry run"`
 	Crop          bool    `usage:"Autocrop black bars"`
 	OutputPath    string  `usage:"Output path"`
@@ -29,6 +30,7 @@ type Config struct {
 	Duration      float64 `usage:"Duration (seconds)"`
 	Extension     string  `usage:"File extension"`
 	DrawTitle     bool    `usage:"Draw title (requires reencode)"`
+	Title         string  `usage:"Video title to draw"`
 	FontFile      string  `usage:"Font file"`
 	BurnSubtitles bool    `usage:"Hardcodes the subtitles"`
 }
@@ -61,7 +63,7 @@ func indexOfOsArgs(search string) int {
 
 func init() {
 
-	cfg.BindPersistentFlagsKey("encode", rootCmd, &initial)
+	cfg.BindCobraPersistentFlagsKey("encode", rootCmd, &initial)
 
 	rootCmd.AddCommand(encodeCmd)
 	rootCmd.AddCommand(bulkCmd)

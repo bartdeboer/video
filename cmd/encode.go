@@ -32,7 +32,7 @@ var encodeCmd = &cobra.Command{
 		output := input.NewOutputVideo()
 		ffmpegCmd = input.getEncodeCommand(output)
 
-		if initial.DryRun || initial.DetectVolume {
+		if initial.DryRun {
 			os.Exit(0)
 		}
 
