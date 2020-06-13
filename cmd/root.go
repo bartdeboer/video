@@ -63,7 +63,7 @@ func indexOfOsArgs(search string) int {
 
 func init() {
 
-	cfg.BindCobraPersistentFlagsKey("encode", rootCmd, &initial)
+	cfg.BindPersistentFlagsKey("encode", rootCmd, &initial)
 
 	rootCmd.AddCommand(encodeCmd)
 	rootCmd.AddCommand(bulkCmd)

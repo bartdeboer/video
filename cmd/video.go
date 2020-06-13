@@ -306,8 +306,6 @@ func (input *Video) NewOutputVideo() *Video {
 	output := NewVideoFromVideo(input)
 	output.setSize(initial.Size)
 	output.setEncodeCodec(initial.Codec)
-	output.audioRate = 0
-	output.audioChannels = 0
 	output.audioCodec = "copy"
 	output.rate = initial.Rate
 	output.seek = initial.Seek
