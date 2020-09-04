@@ -28,8 +28,14 @@ var Sizes = map[int]int{
 }
 
 var decoders = map[string]string{
-	"hevc": "hevc_cuvid",
-	"h264": "h264_cuvid",
+	"hevc":  "hevc_cuvid",
+	"h264":  "h264_cuvid",
+	"h263":  "h263_cuvid",
+	"mpeg4": "mpeg4_cuvid",
+	"mpeg2": "mpeg2_cuvid",
+	"mpeg1": "mpeg1_cuvid",
+	"vc1":   "vc1_cuvid",
+	"vp9":   "vp9_cuvid",
 	// "h264": "h264_nvdec",
 }
 
@@ -87,29 +93,30 @@ func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, erro
 }
 
 type Video struct {
-	file          string
-	baseName      string
-	extension     string
-	width         int
-	height        int
-	size          string
-	seek          float64
-	duration      float64
-	rate          int
-	codec         string
-	pixelFormat   string
-	audioRate     int
-	audioCodec    string
-	audioChannels int
-	audioLayout   string
-	cropTop       int
-	cropBottom    int
-	cropLeft      int
-	cropRight     int
-	title         string
-	year          string
-	extraInfo     string
-	volume        string
+	file            string
+	baseName        string
+	extension       string
+	width           int
+	height          int
+	size            string
+	seek            float64
+	duration        float64
+	rate            int
+	codec           string
+	pixelFormat     string
+	audioRate       int
+	audioCodec      string
+	audioChannels   int
+	audioLayout     string
+	cropTop         int
+	cropBottom      int
+	cropLeft        int
+	cropRight       int
+	title           string
+	year            string
+	extraInfo       string
+	volume          string
+	constantQuality int
 }
 
 func NewVideo() *Video {
@@ -309,6 +316,7 @@ func (input *Video) NewOutputVideo() *Video {
 	output.audioCodec = "copy"
 	output.rate = initial.Rate
 	output.seek = initial.Seek
+	output.constantQuality = 20
 	if initial.Duration > 0 {
 		output.duration = initial.Duration
 	}
@@ -340,6 +348,9 @@ func (input *Video) NewOutputVideo() *Video {
 	}
 	if initial.Extension != "" {
 		output.extension = initial.Extension
+	}
+	if initial.ConstantQuality > 0 {
+		output.constantQuality = initial.ConstantQuality
 	}
 	return output
 }
@@ -431,16 +442,22 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		}
 		subFile = strings.ReplaceAll(subFile, "\\", "/")
 		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
-		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'[v]", subFile))
+		filters = append(filters, fmt.Sprintf("[v]subtitles='%s':stream_index=%d[v]", subFile, initial.SubtitleStream))
+	}
+	videoStream := "0:v"
+	if initial.VideoStream > -1 {
+		videoStream = fmt.Sprintf("0:v:%d", initial.VideoStream)
 	}
 	if len(filters) > 0 {
 		filters = append([]string{
-			"[0:v]hwdownload",
+			fmt.Sprintf("[%s]hwdownload", videoStream),
 			"format=nv12[v]",
 		}, filters...)
 		filters = append(filters, "[v]hwupload_cuda[v]")
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
-		args = append(args, "-map", "[v]", "-map", "0:a:0")
+		args = append(args, "-map", "[v]")
+	} else {
+		args = append(args, "-map", videoStream)
 	}
 
 	// Start video output options
@@ -448,7 +465,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		args = append(args,
 			"-c:v", output.codec,
 			"-rc:v", "vbr_hq",
-			"-cq:v", "20",
+			"-cq:v", strconv.FormatInt(int64(output.constantQuality), 10),
 			"-profile:v", "main",
 			"-max_muxing_queue_size", "800",
 		)
@@ -461,16 +478,24 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			"-maxrate:v", (strconv.FormatInt(int64(output.rate*2), 10) + "k"),
 		)
 	}
+
 	// Start audio output options
+	audioStream := "0:a"
+	if initial.AudioStream > -1 {
+		audioStream = fmt.Sprintf("0:a:%d", initial.AudioStream)
+	}
+	args = append(args, "-map", audioStream)
 	args = append(args, "-c:a", output.audioCodec)
-	if output.audioRate > 0 {
-		args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
-	}
-	if output.audioChannels > 0 {
-		args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
-	}
-	if output.volume != "" {
-		args = append(args, "-filter:a", fmt.Sprintf("volume=%s", strings.Replace(output.volume, " ", "", -1)))
+	if output.audioCodec != "copy" {
+		if output.audioRate > 0 {
+			args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
+		}
+		if output.audioChannels > 0 {
+			args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
+		}
+		if output.volume != "" {
+			args = append(args, "-filter:a", fmt.Sprintf("volume=%s", strings.Replace(output.volume, " ", "", -1)))
+		}
 	}
 	// Start subtitle output options
 	// args = append(args, "-c:s", "copy")
