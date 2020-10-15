@@ -316,7 +316,7 @@ func (input *Video) NewOutputVideo() *Video {
 	output.audioCodec = "copy"
 	output.rate = initial.Rate
 	output.seek = initial.Seek
-	output.constantQuality = 20
+	output.constantQuality = 19 // smaller is better
 	if initial.Duration > 0 {
 		output.duration = initial.Duration
 	}
@@ -425,14 +425,15 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		if initial.Title != "" {
 			title = initial.Title
 		}
-		filters = append(filters, fmt.Sprintf("[v]drawtext=enable='between(t,0,3)':"+
-			"fontfile=%s:"+
-			"text='%s':"+
-			"fontsize=72:"+
-			"fontcolor=ffffff:"+
-			"alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))':"+
-			"x=(w-text_w)/2:"+
-			"y=(h-text_h)/2[v]", initial.FontFile, title))
+		filters = append(filters, fmt.Sprintf("[v]drawtext=enable='between(t,0,3)'"+
+			":fontfile=%s"+
+			":text='%s'"+
+			":fontsize=72"+
+			":fontcolor=ffffff"+
+			":alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))'"+
+			":x=(w-text_w)/2"+
+			":y=(h-text_h)/2"+
+			"[v]", initial.FontFile, title))
 	}
 	if initial.BurnSubtitles {
 		subFile := input.file
@@ -442,7 +443,14 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		}
 		subFile = strings.ReplaceAll(subFile, "\\", "/")
 		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
-		filters = append(filters, fmt.Sprintf("[v]subtitles='%s':stream_index=%d[v]", subFile, initial.SubtitleStream))
+		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'"+
+			":stream_index=%d"+
+			":force_style='Fontname=Arial,Shadow=0,Fontsize=26'"+
+			"[v]", subFile, initial.SubtitleStream))
+	} else if initial.BurnImageSubtitles {
+		// filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:-1[s]", initial.SubtitleStream, output.width))
+		filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:%d[s]", initial.SubtitleStream, output.width, output.height))
+		filters = append(filters, "[v][s]overlay[v]")
 	}
 	videoStream := "0:v"
 	if initial.VideoStream > -1 {
@@ -464,9 +472,13 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.codec == "h264_nvenc" {
 		args = append(args,
 			"-c:v", output.codec,
+			"-preset:v", "slow",
 			"-rc:v", "vbr_hq",
 			"-cq:v", strconv.FormatInt(int64(output.constantQuality), 10),
+			"-bf:v", "3",
 			"-profile:v", "main",
+			"-rc-lookahead:v", "32",
+			"-bufsize:v", "8M",
 			"-max_muxing_queue_size", "800",
 		)
 	} else if output.codec != "" {
