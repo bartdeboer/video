@@ -104,6 +104,10 @@ type Video struct {
 	rate            int
 	codec           string
 	pixelFormat     string
+	colorRange      string
+	colorSpace      string
+	colorTransfer   string
+	colorPrimaries  string
 	audioRate       int
 	audioCodec      string
 	audioChannels   int
@@ -150,7 +154,7 @@ func (video *Video) setSize(size string) {
 		video.size = size
 		if video.width > width {
 			resizeRatio := float64(width) / float64(video.width)
-			video.height = int(resizeRatio * float64(video.height))
+			video.height = int(math.RoundToEven(resizeRatio*float64(video.height)/2) * 2)
 			video.width = width
 		}
 	}
@@ -214,6 +218,10 @@ func (input *Video) detectVideo() (int, int) {
 	input.duration = duration
 	input.setDecodeCodec(keyValues["codec_name"])
 	input.pixelFormat = keyValues["pix_fmt"]
+	input.colorRange = keyValues["color_range"]
+	input.colorSpace = keyValues["color_space"]
+	input.colorTransfer = keyValues["color_transfer"]
+	input.colorPrimaries = keyValues["color_primaries"]
 	input.rate = int(rate / 1000)
 	return int(width), int(height)
 }
@@ -369,13 +377,14 @@ func getSafePath(path string) string {
 
 func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	var args []string
+	filters := []string{}
 	args = append(args,
 		"-y", "-hide_banner",
 	)
 	// Start options for -i input.file
 	if strings.Contains(input.codec, "cuvid") {
 		args = append(args,
-			"-hwaccel", "cuda", // cuda, dxva2, qsv, d3d11va, qsv, cuvid
+			"-hwaccel", "cuda", // nvdec, cuda, dxva2, qsv, d3d11va, qsv, cuvid
 			"-hwaccel_output_format", "cuda", // cuda, nv12, p010le, p016le
 			// "-pixel_format", "yuv420p",
 			// "-hwaccel", "nvdec",
@@ -405,6 +414,16 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 				"x" + strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
+	if (output.height%16) > 0 || (output.width%16) > 0 {
+		padWidth := int(math.Ceil((float64(output.width) / float64(16))) * 16)
+		padHeight := int(math.Ceil((float64(output.height) / float64(16))) * 16)
+		filters = append(filters, fmt.Sprintf("[v]pad=%d:%d:%d:%d,setsar=1[v]",
+			padWidth,
+			padHeight,
+			int((padWidth-output.width)/2),
+			int((padHeight-output.height)/2),
+		))
+	}
 	if input.file != "" {
 		args = append(args, "-i", input.file)
 	}
@@ -419,7 +438,6 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		args = append(args, "-t", strconv.FormatFloat(output.duration, 'f', -1, 64))
 	}
 
-	filters := []string{}
 	if initial.DrawTitle {
 		title := strings.ToUpper(strings.Replace(output.title, ".", " ", -1))
 		if initial.Title != "" {
@@ -428,7 +446,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		filters = append(filters, fmt.Sprintf("[v]drawtext=enable='between(t,0,3)'"+
 			":fontfile=%s"+
 			":text='%s'"+
-			":fontsize=72"+
+			":fontsize=(w/17)"+ // 72
 			":fontcolor=ffffff"+
 			":alpha='if(lt(t,0),0,if(lt(t,0),(t-0)/0,if(lt(t,2),1,if(lt(t,3),(1-(t-2))/1,0))))'"+
 			":x=(w-text_w)/2"+
@@ -445,7 +463,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
 		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'"+
 			":stream_index=%d"+
-			":force_style='Fontname=Arial,Shadow=0,Fontsize=26'"+
+			":force_style='Fontname=Arial,Shadow=0,Fontsize=16'"+
 			"[v]", subFile, initial.SubtitleStream))
 	} else if initial.BurnImageSubtitles {
 		// filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:-1[s]", initial.SubtitleStream, output.width))
@@ -456,11 +474,70 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if initial.VideoStream > -1 {
 		videoStream = fmt.Sprintf("0:v:%d", initial.VideoStream)
 	}
+
 	if len(filters) > 0 {
-		filters = append([]string{
+
+		decFilters := []string{
 			fmt.Sprintf("[%s]hwdownload", videoStream),
+		}
+
+		switch input.pixelFormat {
+		case "yuv420p10le", "yuv422p10le", "yuv444p10le":
+			decFilters = append(decFilters,
+				"format=p010le",
+			)
+		}
+
+		switch input.colorTransfer {
+		case "smpte2084":
+			// args = append(args, "-init_hw_device", "opencl=ocl", "-filter_hw_device", "ocl")
+			args = append(args, "-init_hw_device", "opencl=gpu:0.0", "-filter_hw_device", "gpu")
+			decFilters = append(decFilters,
+				// Software tonal map:
+				// "zscale=t=linear", "format=gbrpf32le", "zscale=p=bt709", "tonemap=tonemap=hable", "zscale=t=bt709:m=bt709:r=tv",
+				// Hardware tonal map:
+				"hwupload", "tonemap_opencl=tonemap=mobius:param=0.01:desat=0.0:range=tv:primaries=bt709:transfer=bt709:matrix=bt709:format=nv12", "hwdownload",
+			)
+			output.colorPrimaries = "bt709"
+			output.colorTransfer = "bt709"
+			output.colorSpace = "bt709"
+		}
+
+		decFilters = append(decFilters,
 			"format=nv12[v]",
-		}, filters...)
+		)
+		output.pixelFormat = "yuv420p"
+
+		filters = append(decFilters, filters...)
+
+		// switch input.pixelFormat {
+		// case "yuv420p10le", "yuv422p10le", "yuv444p10le":
+		// 	fmt.Print("2222222222222222222222222222222222222222")
+		// 	// yuv420p10le, yuv422p10le, yuv444p10le
+		// 	// args = append(args, "-init_hw_device", "opencl=ocl", "-filter_hw_device", "ocl")
+		// 	args = append(args, "-init_hw_device", "opencl=gpu:0.0", "-filter_hw_device", "gpu")
+		// 	// args = append(args, "-map_metadata", "-1")
+		// 	// args = append(args, "-fflags", "+bitexact", "-flags:v", "+bitexact", "-flags:a", "+bitexact")
+
+		// 	filters = append([]string{
+		// 		fmt.Sprintf("[%s]hwdownload", videoStream),
+		// 		"format=p010le",
+		// 		// Software tonal map:
+		// 		// "zscale=t=linear", "format=gbrpf32le", "zscale=p=bt709", "tonemap=tonemap=hable", "zscale=t=bt709:m=bt709:r=tv",
+		// 		// Hardware tonal map:
+		// 		// "hwupload", "tonemap_opencl=tonemap=mobius:param=0.01:desat=0:r=tv:p=bt709:t=bt709:m=bt709:format=nv12", "hwdownload",
+		// 		"hwupload", "tonemap_opencl=tonemap=mobius:param=0.01:desat=0.0:range=tv:primaries=bt709:transfer=bt709:matrix=bt709:format=nv12", "hwdownload",
+		// 		// "hwupload", "tonemap_opencl=tonemap=linear:param=0.1:range=tv:primaries=bt709:transfer=bt709:matrix=bt709:format=nv12", "hwdownload",
+		// 		"format=nv12[v]",
+		// 	}, filters...)
+		// default:
+		// 	fmt.Print("333333333333333333333333333333333333333333333")
+		// 	filters = append([]string{
+		// 		fmt.Sprintf("[%s]hwdownload", videoStream),
+		// 		"format=nv12[v]",
+		// 	}, filters...)
+		// }
+
 		filters = append(filters, "[v]hwupload_cuda[v]")
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
 		args = append(args, "-map", "[v]")
@@ -473,8 +550,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		args = append(args,
 			"-c:v", output.codec,
 			"-preset:v", "slow",
-			"-rc:v", "vbr_hq",
-			"-cq:v", strconv.FormatInt(int64(output.constantQuality), 10),
+			"-rc:v", "vbr", // vbr_hq
+			// "-cq:v", strconv.FormatInt(int64(output.constantQuality), 10),
+			"-cq:v", "22",
 			"-bf:v", "3",
 			"-profile:v", "main",
 			"-rc-lookahead:v", "32",
@@ -486,8 +564,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	}
 	if output.rate > 0 {
 		args = append(args,
+			"-minrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(0.7))), 10) + "k"),
 			"-b:v", (strconv.FormatInt(int64(output.rate), 10) + "k"),
-			"-maxrate:v", (strconv.FormatInt(int64(output.rate*2), 10) + "k"),
+			"-maxrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(1.3))), 10) + "k"),
 		)
 	}
 
@@ -526,7 +605,11 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("Extra info: %s\n", input.extraInfo)
 	fmt.Printf("Seek: %f -> %f\n", input.seek, output.seek)
 	fmt.Printf("Duration: %f -> %f\n", input.duration, output.duration)
-	fmt.Printf("Pixel format: %s\n", input.pixelFormat)
+	fmt.Printf("Pixel format: %s -> %s\n", input.pixelFormat, output.pixelFormat)
+	fmt.Printf("Color range: %s -> %s\n", input.colorRange, output.colorRange)
+	fmt.Printf("Pixel space: %s -> %s\n", input.colorSpace, output.colorSpace)
+	fmt.Printf("Pixel transfer: %s -> %s\n", input.colorTransfer, output.colorTransfer)
+	fmt.Printf("Pixel primaries: %s -> %s\n", input.colorPrimaries, output.colorPrimaries)
 	fmt.Printf("Video crop top: %d\n", input.cropTop)
 	fmt.Printf("Video crop bottom: %d\n", input.cropBottom)
 	fmt.Printf("Video crop left: %d\n", input.cropLeft)
@@ -542,7 +625,13 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("Audio channel layout: %s\n", input.audioLayout)
 	fmt.Printf("Audio volume: %s -> %s\n", input.volume, output.volume)
 
-	ffmpegCmd := exec.Command("ffmpeg", args...)
+	var cmdName = "ffmpeg"
+
+	if initial.FfmpegPath != "" {
+		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
+	}
+
+	ffmpegCmd := exec.Command(cmdName, args...)
 
 	fmt.Printf("\n%+v\n\n", ffmpegCmd)
 

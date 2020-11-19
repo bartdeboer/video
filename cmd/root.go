@@ -38,6 +38,7 @@ type Config struct {
 	BurnImageSubtitles bool    `usage:"Hardcodes the subtitle images"`
 	SubtitleStream     int     `usage:"Subtitle stream index to use"`
 	ConstantQuality    int     `usage:"Constant Quality (0-63)"`
+	FfmpegPath         string  `usage:"Path containing the ffmpeg binary"`
 }
 
 var initial = Config{
