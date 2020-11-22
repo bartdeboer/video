@@ -39,12 +39,15 @@ type Config struct {
 	SubtitleStream     int     `usage:"Subtitle stream index to use"`
 	ConstantQuality    int     `usage:"Constant Quality (0-63)"`
 	FfmpegPath         string  `usage:"Path containing the ffmpeg binary"`
+	PixelFormat        string  `usage:"Pixel format (yuv420p, yuv420p10le, ...)"`
+	ColorTransfer      string  `usage:"Color transfer (smpte2084, bt709, ...)"`
 }
 
 var initial = Config{
-	VideoStream:    -1,
-	AudioStream:    -1,
-	SubtitleStream: 0,
+	VideoStream:     -1,
+	AudioStream:     -1,
+	SubtitleStream:  0,
+	ConstantQuality: -1,
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -87,13 +90,15 @@ func init() {
 
 	if initial.Preset == "telegram" {
 		initial.Size = "720p"
-		// initial.FileSize = 1490 // max 1536
 		initial.FileSize = 2016 // max 2048
 		initial.AudioRate = 144 // 128 = good
 		initial.AudioChannels = 2
 		initial.AudioCodec = "aac"
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
+		initial.ConstantQuality = 24
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
 	}
 
 	if initial.Preset == "phone" {
