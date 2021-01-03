@@ -96,7 +96,7 @@ func init() {
 		initial.AudioCodec = "aac"
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
-		initial.ConstantQuality = 24
+		initial.ConstantQuality = 23 // 1080p:19 720p:23
 		initial.PixelFormat = "yuv420p"
 		initial.ColorTransfer = "bt709"
 	}

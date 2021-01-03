@@ -28,7 +28,7 @@ var Sizes = map[int]int{
 }
 
 var decoders = map[string]string{
-	"hevc":  "hevc_cuvid",
+	"hevc":  "hevc_cuvid", // sw: "hevc"
 	"h264":  "h264_cuvid",
 	"h263":  "h263_cuvid",
 	"mpeg4": "mpeg4_cuvid",
@@ -124,7 +124,9 @@ type Video struct {
 }
 
 func NewVideo() *Video {
-	return &Video{}
+	return &Video{
+		constantQuality: -1,
+	}
 }
 
 func NewVideoFromFile(file string) *Video {
@@ -195,7 +197,11 @@ func (input *Video) detectVideo() (int, int) {
 		input.baseName = input.title + "." + input.year
 	}
 	input.baseName = r.ReplaceAllString(input.baseName, "")
-	ffprobCmd := exec.Command("ffprobe",
+	var cmdName = "ffprobe"
+	if initial.FfmpegPath != "" {
+		cmdName = filepath.Join(initial.FfmpegPath, "ffprobe.exe")
+	}
+	ffprobCmd := exec.Command(cmdName,
 		"-v", "error",
 		"-select_streams", "v:0",
 		"-show_format",
@@ -228,7 +234,11 @@ func (input *Video) detectVideo() (int, int) {
 
 func (input *Video) detectAudio() {
 	fmt.Print("Detecting audio\n")
-	ffprobCmd := exec.Command("ffprobe",
+	var cmdName = "ffprobe"
+	if initial.FfmpegPath != "" {
+		cmdName = filepath.Join(initial.FfmpegPath, "ffprobe.exe")
+	}
+	ffprobCmd := exec.Command(cmdName,
 		"-v", "error",
 		"-select_streams", "a:0",
 		"-show_streams",
@@ -256,21 +266,25 @@ func (input *Video) detectCrop() {
 	if decoder, ok := decoders[input.codec]; ok {
 		args = append(args,
 			"-hwaccel", "cuda",
-			// "-hwaccel_output_format", "cuda",
+			"-hwaccel_output_format", "cuda",
 			"-c:v", decoder,
 		)
 	}
 	args = append(args,
 		"-i", input.file,
-		"-vf", "fps=1/60,cropdetect=24:16:0",
+		"-vf", "fps=1/60,cropdetect=0.1:16:0",
 		"-to", "600",
 		"-an",
 		"-f", "null",
 		getNullDevice(),
 	)
-	ffmpegCmd := exec.Command("ffmpeg", args...)
+	var cmdName = "ffmpeg"
+	if initial.FfmpegPath != "" {
+		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
+	}
+	ffmpegCmd := exec.Command(cmdName, args...)
 	out, _ := ffmpegCmd.CombinedOutput()
-	// fmt.Printf("Crop Detect: %s\n", string(out))
+	fmt.Printf("Crop Detect: %s\n", string(out))
 	r, _ := regexp.Compile("crop=([0-9]+):([0-9]+):([0-9]+):([0-9]+)")
 	matches := r.FindAllStringSubmatch(string(out), -1)
 	minX, minY, maxWidth, maxHeight := input.width, input.height, 0, 0
@@ -295,7 +309,11 @@ func (input *Video) detectCrop() {
 
 func (input *Video) detectVolume() /* float64 */ {
 	fmt.Print("Detecting volume levels\n")
-	ffmpegCmd := exec.Command("ffmpeg",
+	var cmdName = "ffmpeg"
+	if initial.FfmpegPath != "" {
+		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
+	}
+	ffmpegCmd := exec.Command(cmdName,
 		"-hide_banner",
 		"-i", input.file,
 		// "-to", "400",
@@ -393,6 +411,8 @@ func getSafePath(path string) string {
 func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	var args []string
 	filters := []string{}
+	decFilters := []string{}
+
 	args = append(args,
 		"-y", "-hide_banner",
 	)
@@ -411,6 +431,11 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			// "-pix_fmt", "yuv420p",
 			// "-c:v", input.codec,
 		)
+
+		// prepend hwdownload for decode filters
+		decFilters = append([]string{
+			fmt.Sprintf("hwdownload"),
+		}, decFilters...)
 	}
 	// Input stream decoder:
 	if input.codec != "" {
@@ -434,8 +459,14 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 				"x" + strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
+
+	fmt.Printf("HEIGHT: %d -> %d\n", output.height, output.height%16)
+	fmt.Printf("WIDTH: %d -> %d\n", output.width, output.width%16)
+
+	_, hasStandardHeight := Sizes[output.height]
+
 	// Input stream pad options
-	if (output.height%16) > 0 || (output.width%16) > 0 {
+	if !hasStandardHeight && (output.height%16) > 0 || (output.width%16) > 0 {
 		padWidth := int(math.Ceil((float64(output.width) / float64(16))) * 16)
 		padHeight := int(math.Ceil((float64(output.height) / float64(16))) * 16)
 		filters = append(filters, fmt.Sprintf("[v]pad=%d:%d:%d:%d,setsar=1[v]",
@@ -509,10 +540,6 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		videoStream = fmt.Sprintf("0:v:%d", initial.VideoStream)
 	}
 
-	decFilters := []string{
-		fmt.Sprintf("[%s]hwdownload", videoStream),
-	}
-
 	switch input.pixelFormat {
 	case "yuv420p10le", "yuv422p10le", "yuv444p10le":
 		if output.pixelFormat == "yuv420p" {
@@ -538,14 +565,19 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		}
 	}
 
-	// Currently format fixed to nv12
-	decFilters = append(decFilters,
-		"format=nv12[v]",
-	)
+	if len(decFilters) > 1 {
+		// append nv12 (fixed)
+		decFilters = append(decFilters,
+			"format=nv12",
+		)
+
+		filters = append([]string{
+			fmt.Sprintf("[%s]%s[v]", videoStream, strings.Join(decFilters, ",")),
+		}, filters...)
+	}
 
 	// This might be weird
 	if len(filters) > 0 {
-		filters = append(decFilters, filters...)
 		filters = append(filters, "[v]hwupload_cuda[v]")
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
 		args = append(args, "-map", "[v]")
@@ -557,12 +589,15 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.codec == "h264_nvenc" {
 		args = append(args,
 			"-c:v", output.codec,
-			"-preset:v", "slow",
-			"-rc:v", "vbr", // vbr_hq
-			"-bf:v", "3",
-			"-profile:v", "main",
+			"-preset:v", "p7", // p1 ... p7, slow,
+			// "-profile:v", "main",
+			"-level:v", "4.1", // auto, 1 ... 6.2
+			"-rc:v", "vbr", // vbr, vbr_hq, cbr
+			"-bf:v", "4", // 3
+			// "-refs:v", "16",
+			"-b_ref_mode:v", "middle",
 			"-rc-lookahead:v", "32",
-			"-bufsize:v", "8M",
+			"-bufsize:v", "16M", // 8M
 			"-max_muxing_queue_size", "800",
 		)
 	} else if output.codec != "" {
@@ -576,9 +611,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	}
 	if output.rate > 0 {
 		args = append(args,
-			"-minrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(0.7))), 10) + "k"),
+			"-minrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(0.5))), 10) + "k"),
 			"-b:v", (strconv.FormatInt(int64(output.rate), 10) + "k"),
-			"-maxrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(1.3))), 10) + "k"),
+			"-maxrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(1.0))), 10) + "k"),
 		)
 	}
 
@@ -638,11 +673,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	fmt.Printf("Audio volume: %s -> %s\n", input.volume, output.volume)
 
 	var cmdName = "ffmpeg"
-
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
 	}
-
 	ffmpegCmd := exec.Command(cmdName, args...)
 
 	fmt.Printf("\n%+v\n\n", ffmpegCmd)
