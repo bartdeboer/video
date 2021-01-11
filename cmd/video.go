@@ -196,7 +196,10 @@ func (input *Video) detectVideo() (int, int) {
 		input.extraInfo = submatches[3]
 		input.baseName = input.title + "." + input.year
 	}
-	input.baseName = r.ReplaceAllString(input.baseName, "")
+
+	// I don't know what the purpose was of this:
+	// input.baseName = r.ReplaceAllString(input.baseName, "")
+
 	var cmdName = "ffprobe"
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffprobe.exe")
@@ -412,6 +415,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	var args []string
 	filters := []string{}
 	decFilters := []string{}
+	openClFilters := []string{}
 
 	args = append(args,
 		"-y", "-hide_banner",
@@ -419,6 +423,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 
 	// Start input stream options:
 
+	// GPU decoding:
 	if strings.Contains(input.codec, "cuvid") {
 		args = append(args,
 			"-hwaccel", "cuda", // nvdec, cuda, dxva2, qsv, d3d11va, qsv, cuvid
@@ -460,8 +465,8 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		)
 	}
 
-	fmt.Printf("HEIGHT: %d -> %d\n", output.height, output.height%16)
-	fmt.Printf("WIDTH: %d -> %d\n", output.width, output.width%16)
+	// fmt.Printf("HEIGHT: %d -> %d\n", output.height, output.height%16)
+	// fmt.Printf("WIDTH: %d -> %d\n", output.width, output.width%16)
 
 	_, hasStandardHeight := Sizes[output.height]
 
@@ -475,6 +480,8 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			int((padWidth-output.width)/2),
 			int((padHeight-output.height)/2),
 		))
+		output.width = padWidth
+		output.height = padHeight
 	}
 	// Input stream file location
 	if input.file != "" {
@@ -552,20 +559,33 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if input.colorTransfer != "unknown" && output.colorTransfer == "bt709" {
 		switch input.colorTransfer {
 		case "smpte2084":
-			// args = append(args, "-init_hw_device", "opencl=ocl", "-filter_hw_device", "ocl")
-			args = append(args, "-init_hw_device", "opencl=gpu:0.0", "-filter_hw_device", "gpu")
-			decFilters = append(decFilters,
+			openClFilters = append(openClFilters,
 				// Software tonal map:
 				// "zscale=t=linear", "format=gbrpf32le", "zscale=p=bt709", "tonemap=tonemap=hable", "zscale=t=bt709:m=bt709:r=tv",
 				// Hardware tonal map:
-				"hwupload", "tonemap_opencl=tonemap=mobius:param=0.01:desat=0.0:range=tv:primaries=bt709:transfer=bt709:matrix=bt709:format=nv12", "hwdownload",
+				"tonemap_opencl=tonemap=mobius:param=0.01:desat=0.0:range=tv:primaries=bt709:transfer=bt709:matrix=bt709:format=nv12",
 			)
 			output.colorPrimaries = "bt709"
 			output.colorSpace = "bt709"
 		}
 	}
 
-	if len(decFilters) > 1 {
+	if initial.Denoise {
+		openClFilters = append(openClFilters,
+			"nlmeans_opencl=s=1:p=7:pc=5:r=5:rc=5",
+		)
+	}
+
+	if len(openClFilters) > 0 {
+		// args = append(args, "-init_hw_device", "opencl=ocl", "-filter_hw_device", "ocl")
+		args = append(args, "-init_hw_device", "opencl=gpu:0.0", "-filter_hw_device", "gpu")
+
+		filters = append([]string{
+			fmt.Sprintf("[v]format=yuv420p,hwupload,%s,hwdownload,format=yuv420p[v]", strings.Join(openClFilters, ",")),
+		}, filters...)
+	}
+
+	if len(decFilters) > 0 {
 		// append nv12 (fixed)
 		decFilters = append(decFilters,
 			"format=nv12",
@@ -578,7 +598,10 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 
 	// This might be weird
 	if len(filters) > 0 {
-		filters = append(filters, "[v]hwupload_cuda[v]")
+		// GPU encoding:
+		if strings.Contains(output.codec, "nvenc") {
+			filters = append(filters, "[v]hwupload_cuda[v]")
+		}
 		args = append(args, "-filter_complex", strings.Join(filters, ","))
 		args = append(args, "-map", "[v]")
 	} else {
@@ -589,13 +612,23 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.codec == "h264_nvenc" {
 		args = append(args,
 			"-c:v", output.codec,
-			"-preset:v", "p7", // p1 ... p7, slow,
+			"-preset:v", "p7", // p1 ... p7, fast, medium, slow
 			// "-profile:v", "main",
 			"-level:v", "4.1", // auto, 1 ... 6.2
 			"-rc:v", "vbr", // vbr, vbr_hq, cbr
 			"-bf:v", "4", // 3
 			// "-refs:v", "16",
 			"-b_ref_mode:v", "middle",
+			"-rc-lookahead:v", "32",
+			"-bufsize:v", "16M", // 8M
+			"-max_muxing_queue_size", "800",
+		)
+	} else if output.codec == "hevc_nvenc" {
+		args = append(args,
+			"-c:v", output.codec,
+			"-preset:v", "slow", // p1 ... p7, fast, medium, slow
+			"-level:v", "4.1", // auto, 1 ... 6.2
+			"-rc:v", "vbr", // vbr, vbr_hq, cbr
 			"-rc-lookahead:v", "32",
 			"-bufsize:v", "16M", // 8M
 			"-max_muxing_queue_size", "800",

@@ -41,6 +41,7 @@ type Config struct {
 	FfmpegPath         string  `usage:"Path containing the ffmpeg binary"`
 	PixelFormat        string  `usage:"Pixel format (yuv420p, yuv420p10le, ...)"`
 	ColorTransfer      string  `usage:"Color transfer (smpte2084, bt709, ...)"`
+	Denoise            bool    `usage:"Removes film grain"`
 }
 
 var initial = Config{
@@ -97,6 +98,20 @@ func init() {
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
 		initial.ConstantQuality = 23 // 1080p:19 720p:23
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
+	}
+
+	if initial.Preset == "telegram-hevc" {
+		initial.Codec = "hevc_nvenc"
+		initial.Size = "1080p"
+		initial.FileSize = 2016 // max 2048
+		initial.AudioRate = 144 // 128 = good
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		initial.DrawTitle = true
+		initial.Extension = "mp4"
+		initial.ConstantQuality = 22 // 1080p:19 720p:23
 		initial.PixelFormat = "yuv420p"
 		initial.ColorTransfer = "bt709"
 	}
