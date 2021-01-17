@@ -26,6 +26,7 @@ type Config struct {
 	AudioCodec         string  `usage:"(ffmpeg c:a) Audio codec"`
 	AudioChannels      int     `usage:"Number of audio channels"`
 	AudioStream        int     `usage:"Audio stream index to use"`
+	AudioDelay         float64 `usage:"Audio stream delay (seconds)"`
 	FileSize           int     `usage:"Target file size (MB)"`
 	Size               string  `usage:"Resolution (480p, 576p, 720p, 1080p, 1440p or 2160p)"`
 	Seek               float64 `usage:"Seek (seconds)"`

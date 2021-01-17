@@ -112,6 +112,8 @@ type Video struct {
 	audioCodec      string
 	audioChannels   int
 	audioLayout     string
+	audioDelay      float64
+	audioInput      int
 	cropTop         int
 	cropBottom      int
 	cropLeft        int
@@ -396,6 +398,7 @@ func (input *Video) NewOutputVideo() *Video {
 	if initial.ConstantQuality > 0 {
 		output.constantQuality = initial.ConstantQuality
 	}
+	output.audioDelay = initial.AudioDelay
 	return output
 }
 
@@ -486,6 +489,11 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	// Input stream file location
 	if input.file != "" {
 		args = append(args, "-i", input.file)
+	}
+
+	if output.audioDelay != 0 {
+		args = append(args, "-itsoffset", strconv.FormatFloat(output.audioDelay, 'f', -1, 64), "-i", input.file)
+		output.audioInput = 1
 	}
 
 	// Start output stream options:
@@ -580,9 +588,13 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		// args = append(args, "-init_hw_device", "opencl=ocl", "-filter_hw_device", "ocl")
 		args = append(args, "-init_hw_device", "opencl=gpu:0.0", "-filter_hw_device", "gpu")
 
-		filters = append([]string{
-			fmt.Sprintf("[v]format=yuv420p,hwupload,%s,hwdownload,format=yuv420p[v]", strings.Join(openClFilters, ",")),
-		}, filters...)
+		// filters = append([]string{
+		// 	fmt.Sprintf("[v]format=yuv420p,hwupload,%s,hwdownload,format=yuv420p[v]", strings.Join(openClFilters, ",")),
+		// }, filters...)
+
+		decFilters = append(decFilters,
+			fmt.Sprintf("hwupload,%s,hwdownload", strings.Join(openClFilters, ",")),
+		)
 	}
 
 	if len(decFilters) > 0 {
@@ -651,9 +663,9 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	}
 
 	// Start audio output options
-	audioStream := "0:a"
+	audioStream := fmt.Sprintf("%d:a", output.audioInput)
 	if initial.AudioStream > -1 {
-		audioStream = fmt.Sprintf("0:a:%d", initial.AudioStream)
+		audioStream = fmt.Sprintf("%d:a:%d", output.audioInput, initial.AudioStream)
 	}
 	args = append(args, "-map", audioStream)
 	args = append(args, "-c:a", output.audioCodec)
