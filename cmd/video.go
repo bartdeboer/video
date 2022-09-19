@@ -79,6 +79,9 @@ func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, erro
 	}
 	keyValues := map[string]string{}
 	scanner := bufio.NewScanner(stdout)
+
+	fmt.Printf("\n%+v\n\n", cmd)
+
 	cmd.Start()
 	for scanner.Scan() {
 		text := strings.TrimSpace(scanner.Text())
@@ -93,41 +96,43 @@ func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, erro
 }
 
 type Video struct {
-	file            string
-	baseName        string
-	extension       string
-	width           int
-	height          int
-	size            string
-	seek            float64
-	duration        float64
-	rate            int
-	codec           string
-	pixelFormat     string
-	colorRange      string
-	colorSpace      string
-	colorTransfer   string
-	colorPrimaries  string
-	audioRate       int
-	audioCodec      string
-	audioChannels   int
-	audioLayout     string
-	audioDelay      float64
-	audioInput      int
-	cropTop         int
-	cropBottom      int
-	cropLeft        int
-	cropRight       int
-	title           string
-	year            string
-	extraInfo       string
-	volume          string
-	constantQuality int
+	file               string
+	baseName           string
+	extension          string
+	width              int
+	height             int
+	size               string
+	seek               float64
+	duration           float64
+	rate               int
+	codec              string
+	pixelFormat        string
+	colorRange         string
+	colorSpace         string
+	colorTransfer      string
+	colorPrimaries     string
+	audioRate          int
+	audioCodec         string
+	audioChannels      int
+	audioLayout        string
+	audioDelay         float64
+	audioInput         int
+	cropTop            int
+	cropBottom         int
+	cropLeft           int
+	cropRight          int
+	title              string
+	year               string
+	extraInfo          string
+	volume             string
+	constantQuality    int
+	constantRateFactor int
 }
 
 func NewVideo() *Video {
 	return &Video{
-		constantQuality: -1,
+		constantQuality:    -1,
+		constantRateFactor: -1,
 	}
 }
 
@@ -185,12 +190,12 @@ func (video *Video) setFileSize(fileSize int) {
 }
 
 func (input *Video) detectVideo() (int, int) {
-	fmt.Print("Detecting video\n")
+	fmt.Print("Detecting video...\n")
 	input.extension = strings.Trim(filepath.Ext(input.file), ".")
 	input.baseName = filepath.Base(strings.TrimSuffix(input.file, ("." + input.extension)))
 	// r, _ := regexp.Compile("\\[^\\]]*\\]")
 	// r, _ := regexp.Compile("\\.[0-9]{4}\\.(.*)$")
-	r, _ := regexp.Compile("^(.*)\\.([0-9]{4})\\.(.*)$")
+	r, _ := regexp.Compile("^(.*)[. ]([0-9]{4})[. ](.*)$")
 	submatches := r.FindStringSubmatch(input.baseName)
 	if len(submatches) == 4 {
 		input.title = submatches[1]
@@ -238,7 +243,7 @@ func (input *Video) detectVideo() (int, int) {
 }
 
 func (input *Video) detectAudio() {
-	fmt.Print("Detecting audio\n")
+	fmt.Print("Detecting audio...\n")
 	var cmdName = "ffprobe"
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffprobe.exe")
@@ -263,7 +268,7 @@ func (input *Video) detectAudio() {
 }
 
 func (input *Video) detectCrop() {
-	fmt.Print("Detecting black bars\n")
+	fmt.Print("Detecting black bars...\n")
 	var args []string
 	args = append(args,
 		"-y", "-hide_banner",
@@ -313,7 +318,7 @@ func (input *Video) detectCrop() {
 }
 
 func (input *Video) detectVolume() /* float64 */ {
-	fmt.Print("Detecting volume levels\n")
+	fmt.Print("Detecting volume levels...\n")
 	var cmdName = "ffmpeg"
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
@@ -353,7 +358,9 @@ func (input *Video) NewOutputVideo() *Video {
 	if initial.ColorTransfer != "" {
 		output.colorTransfer = initial.ColorTransfer
 	}
-	if initial.ConstantQuality != -1 {
+	if initial.ConstantRateFactor != -1 {
+		output.constantRateFactor = initial.ConstantRateFactor
+	} else if initial.ConstantQuality != -1 {
 		output.constantQuality = initial.ConstantQuality
 	}
 	if initial.Duration > 0 {
@@ -395,9 +402,9 @@ func (input *Video) NewOutputVideo() *Video {
 	if initial.Extension != "" {
 		output.extension = initial.Extension
 	}
-	if initial.ConstantQuality > 0 {
-		output.constantQuality = initial.ConstantQuality
-	}
+	// if initial.ConstantQuality > 0 {
+	// 	output.constantQuality = initial.ConstantQuality
+	// }
 	output.audioDelay = initial.AudioDelay
 	return output
 }
@@ -494,6 +501,10 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if output.audioDelay != 0 {
 		args = append(args, "-itsoffset", strconv.FormatFloat(output.audioDelay, 'f', -1, 64), "-i", input.file)
 		output.audioInput = 1
+	}
+
+	if initial.OptMetadata {
+		args = append(args, "-map_metadata", "-1")
 	}
 
 	// Start output stream options:
@@ -622,11 +633,15 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 
 	// Start video output options
 	if output.codec == "h264_nvenc" {
+		// ffmpeg -y -vsync 0 -hwaccel cuda -hwaccel_output_format cuda -i input.mp4 -c:a copy
+		// -c:v h264_nvenc -preset p6 -tune hq -b:v 5M -bufsize 5M -maxrate 10M -qmin 0 -g 250
+		// -bf 3 -b_ref_mode middle -temporal-aq 1 -rc-lookahead 20 -i_qfactor 0.75 -b_qfactor
+		// 1.1 output.mp4
 		args = append(args,
 			"-c:v", output.codec,
 			"-preset:v", "p7", // p1 ... p7, fast, medium, slow
 			// "-profile:v", "main",
-			"-level:v", "4.1", // auto, 1 ... 6.2
+			// "-level:v", "4.1", // auto, 1 ... 6.2
 			"-rc:v", "vbr", // vbr, vbr_hq, cbr
 			"-bf:v", "4", // 3
 			// "-refs:v", "16",
@@ -638,28 +653,37 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	} else if output.codec == "hevc_nvenc" {
 		args = append(args,
 			"-c:v", output.codec,
-			"-preset:v", "slow", // p1 ... p7, fast, medium, slow
+			"-preset:v", "p7", // p1 ... p7, fast, medium, slow
 			"-level:v", "4.1", // auto, 1 ... 6.2
 			"-rc:v", "vbr", // vbr, vbr_hq, cbr
 			"-rc-lookahead:v", "32",
+			"-bf:v", "4", // 3
 			"-bufsize:v", "16M", // 8M
 			"-max_muxing_queue_size", "800",
+		)
+	} else if output.codec == "libx265" || output.codec == "libx264" {
+		args = append(args,
+			"-c:v", output.codec,
+			"-preset:v", "medium",
 		)
 	} else if output.codec != "" {
 		args = append(args, "-c:v", output.codec)
 	}
-	if output.constantQuality != -1 {
-		args = append(args,
-			// "-cq:v", "24", // lower is better
-			"-cq:v", strconv.FormatInt(int64(output.constantQuality), 10),
-		)
+	if output.constantRateFactor != -1 {
+		args = append(args, "-crf:v", strconv.FormatInt(int64(output.constantRateFactor), 10))
+	} else if output.constantQuality != -1 {
+		args = append(args, "-cq:v", strconv.FormatInt(int64(output.constantQuality), 10))
 	}
 	if output.rate > 0 {
 		args = append(args,
-			"-minrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(0.5))), 10) + "k"),
+			// "-minrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(0.5))), 10) + "k"),
 			"-b:v", (strconv.FormatInt(int64(output.rate), 10) + "k"),
-			"-maxrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(1.0))), 10) + "k"),
 		)
+		if !initial.TwoPass {
+			args = append(args,
+				"-maxrate:v", (strconv.FormatInt(int64(math.Round(float64(output.rate)*float64(1.0))), 10) + "k"),
+			)
+		}
 	}
 
 	// Start audio output options
@@ -687,7 +711,6 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	output.file = getSafePath(filepath.Join(initial.OutputPath,
 		(output.baseName + "." + output.size + "." + output.extension)),
 	)
-	args = append(args, output.file)
 
 	fmt.Printf("Input file: %s\n", input.file)
 	fmt.Printf("Output file: %s\n", output.file)
@@ -721,6 +744,30 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
 	}
+
+	if !initial.DryRun && initial.TwoPass && output.codec == "libx265" {
+		var pass1Args = append(args,
+			"-x265-params", "no-slow-firstpass=1:pass=1",
+			"-an",
+			"-f", "null",
+			getNullDevice(),
+		)
+		pass1ffmpegCmd := exec.Command(cmdName, pass1Args...)
+		fmt.Printf("\n%+v\n\n", pass1ffmpegCmd)
+		pass1ffmpegCmd.Stdout = os.Stdout
+		pass1ffmpegCmd.Stderr = os.Stderr
+		err := pass1ffmpegCmd.Run()
+		if err != nil {
+			log.Fatalf("pass1ffmpegCmd.Run() failed with %s\n", err)
+		}
+
+		args = append(args,
+			"-x265-params", "pass=2",
+		)
+	}
+
+	args = append(args, output.file)
+
 	ffmpegCmd := exec.Command(cmdName, args...)
 
 	fmt.Printf("\n%+v\n\n", ffmpegCmd)

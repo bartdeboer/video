@@ -39,17 +39,21 @@ type Config struct {
 	BurnImageSubtitles bool    `usage:"Hardcodes the subtitle images"`
 	SubtitleStream     int     `usage:"Subtitle stream index to use"`
 	ConstantQuality    int     `usage:"Constant Quality (0-63)"`
+	ConstantRateFactor int     `usage:"Constant Rate Factor (0-51)"`
 	FfmpegPath         string  `usage:"Path containing the ffmpeg binary"`
 	PixelFormat        string  `usage:"Pixel format (yuv420p, yuv420p10le, ...)"`
 	ColorTransfer      string  `usage:"Color transfer (smpte2084, bt709, ...)"`
 	Denoise            bool    `usage:"Removes film grain"`
+	OptMetadata        bool    `usage:"Optimize metadata"`
+	TwoPass            bool    `usage:"Perform 2-pass encoding"`
 }
 
 var initial = Config{
-	VideoStream:     -1,
-	AudioStream:     -1,
-	SubtitleStream:  0,
-	ConstantQuality: -1,
+	VideoStream:        -1,
+	AudioStream:        -1,
+	SubtitleStream:     0,
+	ConstantQuality:    -1,
+	ConstantRateFactor: -1,
 }
 
 // rootCmd represents the base command when called without any subcommands
@@ -90,34 +94,53 @@ func init() {
 		}
 	}
 
-	if initial.Preset == "telegram" {
+	switch initial.Preset {
+	case "":
+		break
+	case "telegram":
 		initial.Size = "720p"
 		initial.FileSize = 2016 // max 2048
 		initial.AudioRate = 144 // 128 = good
 		initial.AudioChannels = 2
 		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
 		initial.ConstantQuality = 23 // 1080p:19 720p:23
 		initial.PixelFormat = "yuv420p"
 		initial.ColorTransfer = "bt709"
-	}
-
-	if initial.Preset == "telegram-hevc" {
+		initial.OptMetadata = true
+		break
+	case "telegram-hevc":
 		initial.Codec = "hevc_nvenc"
 		initial.Size = "1080p"
 		initial.FileSize = 2016 // max 2048
 		initial.AudioRate = 144 // 128 = good
 		initial.AudioChannels = 2
 		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
 		initial.ConstantQuality = 22 // 1080p:19 720p:23
 		initial.PixelFormat = "yuv420p"
 		initial.ColorTransfer = "bt709"
-	}
-
-	if initial.Preset == "phone" {
+		initial.OptMetadata = true
+	case "telegram-x265":
+		initial.Codec = "libx265"
+		initial.Size = "1080p"
+		initial.FileSize = 2016 // max 2048
+		initial.AudioRate = 144 // 128 = good
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
+		initial.DrawTitle = true
+		initial.Extension = "mp4"
+		// initial.ConstantRateFactor = 26
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
+		initial.OptMetadata = true
+		break
+	case "phone":
 		// Size = "720p"
 		// FileSize = 1490 // max 1536
 		initial.AudioRate = 196
@@ -125,5 +148,9 @@ func init() {
 		initial.AudioCodec = "aac"
 		// DrawTitle = true
 		initial.Extension = "mp4"
+	default:
+		fmt.Print("Unknown preset\n")
+		os.Exit(0)
 	}
+
 }
