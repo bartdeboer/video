@@ -21,6 +21,7 @@ type Config struct {
 	OutputPath         string  `usage:"Output path"`
 	Rate               int     `usage:"(ffmpeg b:v) Video bitrate (k)"`
 	Codec              string  `usage:"(ffmpeg c:v) Video codec"`
+	InputCodec         string  `usage:"Input decoder codec"`
 	VideoStream        int     `usage:"Audio stream index to use"`
 	AudioRate          int     `usage:"(ffmpeg b:a) Audio bitrate (k)"`
 	AudioCodec         string  `usage:"(ffmpeg c:a) Audio codec"`
@@ -49,8 +50,8 @@ type Config struct {
 }
 
 var initial = Config{
-	VideoStream:        -1,
-	AudioStream:        -1,
+	VideoStream:        0,
+	AudioStream:        0,
 	SubtitleStream:     0,
 	ConstantQuality:    -1,
 	ConstantRateFactor: -1,
@@ -144,6 +145,13 @@ func init() {
 		// Size = "720p"
 		// FileSize = 1490 // max 1536
 		initial.AudioRate = 196
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		// DrawTitle = true
+		initial.Extension = "mp4"
+	case "homevideo":
+		initial.Codec = "libx265"
+		// initial.AudioRate = 196
 		initial.AudioChannels = 2
 		initial.AudioCodec = "aac"
 		// DrawTitle = true

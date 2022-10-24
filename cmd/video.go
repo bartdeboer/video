@@ -88,7 +88,7 @@ func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, erro
 		if text == "" {
 			continue
 		}
-		// fmt.Printf("%s\n", text)
+		fmt.Printf("%s\n", text)
 		key, value := getKeyStringValue(text, sep)
 		keyValues[key] = value
 	}
@@ -104,6 +104,7 @@ type Video struct {
 	size               string
 	seek               float64
 	duration           float64
+	stream             int
 	rate               int
 	codec              string
 	pixelFormat        string
@@ -111,6 +112,7 @@ type Video struct {
 	colorSpace         string
 	colorTransfer      string
 	colorPrimaries     string
+	audioStream        int
 	audioRate          int
 	audioCodec         string
 	audioChannels      int
@@ -139,8 +141,8 @@ func NewVideo() *Video {
 func NewVideoFromFile(file string) *Video {
 	video := NewVideo()
 	video.file = file
-	video.detectVideo()
-	video.detectAudio()
+	video.detectVideo(initial.VideoStream)
+	video.detectAudio(initial.AudioStream)
 	return video
 }
 
@@ -189,8 +191,9 @@ func (video *Video) setFileSize(fileSize int) {
 	}
 }
 
-func (input *Video) detectVideo() (int, int) {
+func (input *Video) detectVideo(streamIndex int) (int, int) {
 	fmt.Print("Detecting video...\n")
+	input.stream = streamIndex
 	input.extension = strings.Trim(filepath.Ext(input.file), ".")
 	input.baseName = filepath.Base(strings.TrimSuffix(input.file, ("." + input.extension)))
 	// r, _ := regexp.Compile("\\[^\\]]*\\]")
@@ -213,7 +216,7 @@ func (input *Video) detectVideo() (int, int) {
 	}
 	ffprobCmd := exec.Command(cmdName,
 		"-v", "error",
-		"-select_streams", "v:0",
+		"-select_streams", "v:"+strconv.Itoa(streamIndex),
 		"-show_format",
 		"-show_streams",
 		// "-show_entries", "stream=width,height",
@@ -242,15 +245,16 @@ func (input *Video) detectVideo() (int, int) {
 	return int(width), int(height)
 }
 
-func (input *Video) detectAudio() {
+func (input *Video) detectAudio(streamIndex int) {
 	fmt.Print("Detecting audio...\n")
+	input.audioStream = streamIndex
 	var cmdName = "ffprobe"
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffprobe.exe")
 	}
 	ffprobCmd := exec.Command(cmdName,
 		"-v", "error",
-		"-select_streams", "a:0",
+		"-select_streams", "a:"+strconv.Itoa(streamIndex),
 		"-show_streams",
 		"-of", "default=noprint_wrappers=1",
 		"-i", input.file,
@@ -258,6 +262,10 @@ func (input *Video) detectAudio() {
 	keyValues, err := getKeyValuesFromCommand(ffprobCmd, "=")
 	if err != nil {
 		log.Fatalf("getKeyValuesFromCommand() failed with %s\n", err)
+	}
+	if len(keyValues) == 0 {
+		input.audioStream = -1
+		return
 	}
 	rate, _ := strconv.ParseInt(keyValues["bit_rate"], 10, 0)
 	channels, _ := strconv.ParseInt(keyValues["channels"], 10, 0)
@@ -426,6 +434,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	filters := []string{}
 	decFilters := []string{}
 	openClFilters := []string{}
+	isHwAccelerated := false
 
 	args = append(args,
 		"-y", "-hide_banner",
@@ -434,7 +443,8 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	// Start input stream options:
 
 	// GPU decoding:
-	if strings.Contains(input.codec, "cuvid") {
+	if strings.Contains(input.codec, "cuvid") || strings.Contains(input.codec, "nvenc") {
+		// http://ffmpeg.org/pipermail/ffmpeg-devel/2018-November/235929.html
 		args = append(args,
 			"-hwaccel", "cuda", // nvdec, cuda, dxva2, qsv, d3d11va, qsv, cuvid
 			"-hwaccel_output_format", "cuda", // cuda, nv12, p010le, p016le
@@ -447,19 +457,21 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			// "-c:v", input.codec,
 		)
 
+		isHwAccelerated = true
+
 		// prepend hwdownload for decode filters
 		decFilters = append([]string{
 			fmt.Sprintf("hwdownload"),
 		}, decFilters...)
 	}
 	// Input stream decoder:
-	if input.codec != "" {
+	if input.codec != "" && input.codec != "ffmpeg" {
 		args = append(args,
 			"-c:v", input.codec,
 		)
 	}
 	// Input stream crop options
-	if (input.cropTop + input.cropBottom + input.cropLeft + input.cropRight) > 0 {
+	if isHwAccelerated && (input.cropTop+input.cropBottom+input.cropLeft+input.cropRight) > 0 {
 		args = append(args,
 			"-crop", (strconv.FormatInt(int64(input.cropTop), 10) +
 				"x" + strconv.FormatInt(int64(input.cropBottom), 10) +
@@ -468,10 +480,17 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		)
 	}
 	// Input stream resize options
-	if input.width != output.width {
+	if isHwAccelerated && input.width != output.width {
 		args = append(args,
 			"-resize", (strconv.FormatInt(int64(output.width), 10) +
 				"x" + strconv.FormatInt(int64(output.height), 10)),
+		)
+	}
+
+	if !isHwAccelerated && input.width != output.width {
+		decFilters = append(decFilters, ("scale=" +
+			strconv.FormatInt(int64(output.width), 10) + ":" +
+			strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
 
@@ -687,23 +706,26 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	}
 
 	// Start audio output options
-	audioStream := fmt.Sprintf("%d:a", output.audioInput)
-	if initial.AudioStream > -1 {
-		audioStream = fmt.Sprintf("%d:a:%d", output.audioInput, initial.AudioStream)
+	if input.audioStream != -1 {
+		audioStream := fmt.Sprintf("%d:a", output.audioInput)
+		if initial.AudioStream > -1 {
+			audioStream = fmt.Sprintf("%d:a:%d", output.audioInput, initial.AudioStream)
+		}
+		args = append(args, "-map", audioStream)
+		args = append(args, "-c:a", output.audioCodec)
+		if output.audioCodec != "copy" {
+			if output.audioRate > 0 {
+				args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
+			}
+			if output.audioChannels > 0 {
+				args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
+			}
+			if output.volume != "" {
+				args = append(args, "-filter:a", fmt.Sprintf("volume=%s", strings.Replace(output.volume, " ", "", -1)))
+			}
+		}
 	}
-	args = append(args, "-map", audioStream)
-	args = append(args, "-c:a", output.audioCodec)
-	if output.audioCodec != "copy" {
-		if output.audioRate > 0 {
-			args = append(args, "-b:a", (strconv.FormatInt(int64(output.audioRate), 10) + "k"))
-		}
-		if output.audioChannels > 0 {
-			args = append(args, "-ac", strconv.FormatInt(int64(output.audioChannels), 10))
-		}
-		if output.volume != "" {
-			args = append(args, "-filter:a", fmt.Sprintf("volume=%s", strings.Replace(output.volume, " ", "", -1)))
-		}
-	}
+
 	// Start subtitle output options
 	// args = append(args, "-c:s", "copy")
 	// args = append(args, "-map", "0")

@@ -29,6 +29,10 @@ var encodeCmd = &cobra.Command{
 			input.detectVolume()
 		}
 
+		if initial.InputCodec != "" {
+			input.codec = initial.InputCodec
+		}
+
 		output := input.NewOutputVideo()
 		ffmpegCmd = input.getEncodeCommand(output)
 
