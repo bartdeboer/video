@@ -99,7 +99,8 @@ func init() {
 	case "":
 		break
 	case "telegram":
-		initial.Size = "720p"
+		initial.Codec = "h264_nvenc"
+		initial.Size = "1080p"
 		initial.FileSize = 2016 // max 2048
 		initial.AudioRate = 144 // 128 = good
 		initial.AudioChannels = 2
@@ -107,7 +108,7 @@ func init() {
 		initial.AudioStream = 0
 		initial.DrawTitle = true
 		initial.Extension = "mp4"
-		initial.ConstantQuality = 23 // 1080p:19 720p:23
+		initial.ConstantQuality = 19 // 1080p:19 720p:23
 		initial.PixelFormat = "yuv420p"
 		initial.ColorTransfer = "bt709"
 		initial.OptMetadata = true
@@ -154,8 +155,22 @@ func init() {
 		// initial.AudioRate = 196
 		initial.AudioChannels = 2
 		initial.AudioCodec = "aac"
+		initial.ConstantRateFactor = 21
 		// DrawTitle = true
 		initial.Extension = "mp4"
+	case "teams":
+		initial.Codec = "h264_nvenc"
+		initial.Size = "1080p"
+		initial.AudioRate = 144 // 128 = good
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
+		initial.Extension = "mp4"
+		initial.ConstantQuality = 27 // 1080p:19 720p:23
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
+		initial.OptMetadata = true
+		break
 	default:
 		fmt.Print("Unknown preset\n")
 		os.Exit(0)

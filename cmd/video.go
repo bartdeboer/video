@@ -356,7 +356,14 @@ func (input *Video) detectVolume() /* float64 */ {
 func (input *Video) NewOutputVideo() *Video {
 	output := NewVideoFromVideo(input)
 	output.setSize(initial.Size)
+
+	fmt.Print("INPUT CODEC::::::::", input.codec, "\n")
+	fmt.Print("INITIAL CODEC::::::::", initial.Codec, "\n")
+
 	output.setEncodeCodec(initial.Codec)
+
+	fmt.Print("OUTPUT CODEC::::::::", output.codec, "\n")
+
 	output.audioCodec = "copy"
 	output.rate = initial.Rate
 	output.seek = initial.Seek
@@ -432,7 +439,7 @@ func getSafePath(path string) string {
 func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	var args []string
 	filters := []string{}
-	decFilters := []string{}
+	swFilters := []string{}
 	openClFilters := []string{}
 	isHwAccelerated := false
 
@@ -460,16 +467,18 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		isHwAccelerated = true
 
 		// prepend hwdownload for decode filters
-		decFilters = append([]string{
+		swFilters = append([]string{
 			fmt.Sprintf("hwdownload"),
-		}, decFilters...)
+		}, swFilters...)
 	}
+
 	// Input stream decoder:
 	if input.codec != "" && input.codec != "ffmpeg" {
 		args = append(args,
 			"-c:v", input.codec,
 		)
 	}
+
 	// Input stream crop options
 	if isHwAccelerated && (input.cropTop+input.cropBottom+input.cropLeft+input.cropRight) > 0 {
 		args = append(args,
@@ -479,6 +488,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 				"x" + strconv.FormatInt(int64(input.cropRight), 10)),
 		)
 	}
+
 	// Input stream resize options
 	if isHwAccelerated && input.width != output.width {
 		args = append(args,
@@ -488,7 +498,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	}
 
 	if !isHwAccelerated && input.width != output.width {
-		decFilters = append(decFilters, ("scale=" +
+		swFilters = append(swFilters, ("scale=" +
 			strconv.FormatInt(int64(output.width), 10) + ":" +
 			strconv.FormatInt(int64(output.height), 10)),
 		)
@@ -587,11 +597,13 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 
 	switch input.pixelFormat {
 	case "yuv420p10le", "yuv422p10le", "yuv444p10le":
-		if output.pixelFormat == "yuv420p" {
-			decFilters = append(decFilters,
-				"format=p010le",
-			)
-		}
+		swFilters = append(swFilters,
+			"format=p010le",
+		)
+	default:
+		swFilters = append(swFilters,
+			"format=nv12",
+		)
 	}
 
 	if input.colorTransfer != "unknown" && output.colorTransfer == "bt709" {
@@ -605,6 +617,24 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 			)
 			output.colorPrimaries = "bt709"
 			output.colorSpace = "bt709"
+		}
+	}
+
+	// Covert HLG HDR (arib-std-b67)
+	if input.colorTransfer != "smpte2084" && output.colorTransfer == "smpte2084" {
+		if output.codec == "libx265" {
+			swFilters = append(swFilters,
+				"zscale=transfer=smpte2084",
+			)
+			args = append(args,
+				"-pix_fmt", "yuv420p10le",
+				"-x265-params", "hdr-opt=1:repeat-headers=1:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+			)
+		}
+		if output.codec == "hevc_nvenc" {
+			swFilters = append(swFilters,
+				"zscale=transfer=smpte2084,format=p010le",
+			)
 		}
 	}
 
@@ -622,19 +652,30 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		// 	fmt.Sprintf("[v]format=yuv420p,hwupload,%s,hwdownload,format=yuv420p[v]", strings.Join(openClFilters, ",")),
 		// }, filters...)
 
-		decFilters = append(decFilters,
-			fmt.Sprintf("hwupload,%s,hwdownload", strings.Join(openClFilters, ",")),
+		// if len(swFilters) == 2 {
+		// 	swFilters = append([]string{
+		// 		"hwdownload",
+		// 		swFilters[1],
+		// 		"hwupload",
+		// 	},
+		// 		fmt.Sprintf("%s,hwdownload,format=nv12", strings.Join(openClFilters, ",")),
+		// 	)
+		// } else {
+		swFilters = append(swFilters,
+			fmt.Sprintf("hwupload,%s,hwdownload,format=nv12", strings.Join(openClFilters, ",")),
 		)
+		// }
+
 	}
 
-	if len(decFilters) > 0 {
+	if len(swFilters) > 0 {
 		// append nv12 (fixed)
-		decFilters = append(decFilters,
-			"format=nv12",
-		)
+		// swFilters = append(swFilters,
+		// 	"format=nv12",
+		// )
 
 		filters = append([]string{
-			fmt.Sprintf("[%s]%s[v]", videoStream, strings.Join(decFilters, ",")),
+			fmt.Sprintf("[%s]%s[v]", videoStream, strings.Join(swFilters, ",")),
 		}, filters...)
 	}
 
@@ -683,7 +724,7 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	} else if output.codec == "libx265" || output.codec == "libx264" {
 		args = append(args,
 			"-c:v", output.codec,
-			"-preset:v", "medium",
+			"-preset:v", "slow",
 		)
 	} else if output.codec != "" {
 		args = append(args, "-c:v", output.codec)
