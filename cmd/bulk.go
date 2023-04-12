@@ -35,7 +35,9 @@ var bulkCmd = &cobra.Command{
 			// filePath := getSafePath(filepath.Join(dir, file.Name()))
 			filePath := filepath.Join(dir, file.Name())
 			input := NewVideoFromFile(filePath)
-			output := input.NewOutputVideo()
+			input.detectVideo(initial.VideoStream)
+			input.detectAudio(initial.AudioStream)
+			output := input.NewOutputVideoFromCmdAgrs()
 			if input.codec == "h264_cuvid" {
 				output.codec = "copy"
 			}

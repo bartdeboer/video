@@ -21,6 +21,9 @@ var encodeCmd = &cobra.Command{
 		var ffmpegCmd *exec.Cmd
 		input := NewVideoFromFile(args[0])
 
+		input.detectVideo(initial.VideoStream)
+		input.detectAudio(initial.AudioStream)
+
 		if initial.Crop {
 			input.detectCrop()
 		}
@@ -33,7 +36,7 @@ var encodeCmd = &cobra.Command{
 			input.codec = initial.InputCodec
 		}
 
-		output := input.NewOutputVideo()
+		output := input.NewOutputVideoFromCmdAgrs()
 		ffmpegCmd = input.getEncodeCommand(output)
 
 		if initial.DryRun {
