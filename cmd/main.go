@@ -48,6 +48,8 @@ func init() {
 
 	cfg.BindPersistentFlagsKey("encode", rootCmd, &initial)
 
+	fmt.Printf("%v\n", initial)
+
 	rootCmd.AddCommand(encodeCmd)
 	rootCmd.AddCommand(bulkCmd)
 	rootCmd.AddCommand(vesCmd)
@@ -61,6 +63,23 @@ func init() {
 
 	switch initial.Preset {
 	case "":
+		break
+	case "telegram-small":
+		initial.Codec = "libx264"
+		// initial.Size = "1080p"
+		initial.AudioRate = 144 // 128 = good
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
+		initial.DrawTitle = false
+		initial.Extension = "mp4"
+		// initial.ConstantQuality = 23 // 1080p:19 720p:23
+		initial.ConstantRateFactor = 26
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
+		initial.OptMetadata = false
+		// initial.WatermarkFile = "watermark-small.png"
+		initial.WatermarkPosition = "W-w-48:48"
 		break
 	case "telegram":
 		initial.Codec = "h264_nvenc"

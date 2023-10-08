@@ -111,13 +111,19 @@ func (video *Video) detectSize() {
 }
 
 func (video *Video) setSize(size string) {
-	height, _ := strconv.ParseInt(strings.Trim(size, "p"), 10, 0)
-	if width, ok := Sizes[int(height)]; ok {
+	height, _ := strconv.Atoi(strings.Trim(size, "p"))
+	if width, ok := Sizes[height]; ok {
 		video.size = size
+		aspectRatio := float64(video.width) / float64(video.height)
+
 		if video.width > width {
-			resizeRatio := float64(width) / float64(video.width)
-			video.height = int(math.RoundToEven(resizeRatio*float64(video.height)/2) * 2)
 			video.width = width
+			video.height = int(math.RoundToEven(float64(video.width) / aspectRatio))
+		}
+
+		if video.height > height {
+			video.height = height
+			video.width = int(math.RoundToEven(float64(video.height) * aspectRatio))
 		}
 	}
 }
@@ -129,11 +135,14 @@ func (video *Video) setEncodeCodec(codec string) {
 	}
 }
 
-func (video *Video) setDecodeCodec(codec string) {
-	video.codec = codec
-	if decoder, ok := decoders[video.codec]; ok {
-		video.codec = decoder
+func (video *Video) getDecoder(codec string) string {
+	if initial.Decoder != "" {
+		return initial.Decoder
 	}
+	if decoder, ok := decoders[video.codec]; ok {
+		return decoder
+	}
+	return codec
 }
 
 func (video *Video) setFileSize(fileSize int) {
@@ -186,7 +195,7 @@ func (input *Video) detectVideo(streamIndex int) (int, int) {
 	input.height = int(height)
 	input.detectSize()
 	input.duration = duration
-	input.setDecodeCodec(keyValues["codec_name"])
+	input.codec = input.getDecoder(keyValues["codec_name"])
 	input.pixelFormat = keyValues["pix_fmt"]
 	input.colorRange = keyValues["color_range"]
 	input.colorSpace = keyValues["color_space"]
@@ -229,20 +238,44 @@ func (input *Video) detectAudio(streamIndex int) {
 func (input *Video) detectCrop() {
 	fmt.Print("Detecting black bars...\n")
 	var args []string
+
+	detectDuration := 600.0
+
+	if initial.CropDetectDuration != 0 {
+		detectDuration = initial.CropDetectDuration
+	} else {
+		if initial.Duration != 0 && initial.Duration < detectDuration {
+			detectDuration = initial.Duration
+		}
+		if initial.To != "" {
+			to, _ := parseTimeStringToSeconds(initial.To)
+			detectDuration = math.Min(to, detectDuration) - 2
+		}
+	}
+
+	// detectDuration := math.Min(math.Min(initial.Duration, input.duration), 600)
+	// frameInterval := int(math.Round(detectDuration / 9))
+	// fpsValue := float64(10) / detectDuration
+	// filter := fmt.Sprintf("fps=fps=%.6f,cropdetect=0.1:16:0", fpsValue)
+	filter := fmt.Sprintf("fps=fps=10/%.6f,cropdetect=0.1:16:0", detectDuration)
+	// filter := fmt.Sprintf("select='not(lt(mod(t,%d),1))',cropdetect=0.1:16:0", frameInterval)
+
 	args = append(args,
 		"-y", "-hide_banner",
 	)
-	if decoder, ok := decoders[input.codec]; ok {
+	if strings.Contains(input.codec, "cuvid") || strings.Contains(input.codec, "nvenc") {
 		args = append(args,
 			"-hwaccel", "cuda",
 			"-hwaccel_output_format", "cuda",
-			"-c:v", decoder,
 		)
 	}
 	args = append(args,
+		"-c:v", input.codec,
+	)
+	args = append(args,
 		"-i", input.file,
-		"-vf", "fps=1/60,cropdetect=0.1:16:0",
-		"-to", "600",
+		"-vf", filter,
+		"-to", strconv.Itoa(int(detectDuration)),
 		"-an",
 		"-f", "null",
 		getNullDevice(),
@@ -251,29 +284,40 @@ func (input *Video) detectCrop() {
 	if initial.FfmpegPath != "" {
 		cmdName = filepath.Join(initial.FfmpegPath, "ffmpeg.exe")
 	}
+
 	ffmpegCmd := exec.Command(cmdName, args...)
+
+	fmt.Printf("\n%+v\n\n", ffmpegCmd)
+
 	out, _ := ffmpegCmd.CombinedOutput()
 	fmt.Printf("Crop Detect: %s\n", string(out))
 	r, _ := regexp.Compile("crop=([0-9]+):([0-9]+):([0-9]+):([0-9]+)")
+
 	matches := r.FindAllStringSubmatch(string(out), -1)
-	minX, minY, maxWidth, maxHeight := input.width, input.height, 0, 0
+	minX, minY, maxRight, maxBottom, maxWidth, maxHeight := input.width, input.height, 0, 0, 0, 0
 	for _, submatches := range matches {
-		// fmt.Printf("%q\n", submatches[0])
-		width, _ := strconv.ParseInt(submatches[1], 10, 0)
-		height, _ := strconv.ParseInt(submatches[2], 10, 0)
 		x, _ := strconv.ParseInt(submatches[3], 10, 0)
 		y, _ := strconv.ParseInt(submatches[4], 10, 0)
+		width, _ := strconv.ParseInt(submatches[1], 10, 0)
+		height, _ := strconv.ParseInt(submatches[2], 10, 0)
 		maxWidth = int(math.Max(float64(maxWidth), float64(width)))
 		maxHeight = int(math.Max(float64(maxHeight), float64(height)))
 		minX = int(math.Min(float64(minX), float64(x)))
 		minY = int(math.Min(float64(minY), float64(y)))
+		maxRight = int(math.Max(float64(maxRight), float64(x+width)))
+		maxBottom = int(math.Max(float64(maxBottom), float64(y+height)))
 	}
 	input.cropTop = minY
 	input.cropBottom = input.height - (minY + maxHeight)
+	// input.cropBottom = input.height - maxBottom
 	input.cropLeft = minX
 	input.cropRight = input.width - (minX + maxWidth)
+	// input.cropRight = input.width - maxRight
 	input.height = maxHeight
 	input.width = maxWidth
+
+	// os.Exit(0)
+
 }
 
 func (input *Video) detectVolume() /* float64 */ {
@@ -318,9 +362,9 @@ func (input *Video) NewOutputVideoFromCmdAgrs() *Video {
 		initial.Duration = -1
 	}
 
-	fmt.Print("INPUT CODEC::::::::", input.codec, "\n")
-	fmt.Print("INITIAL CODEC::::::::", initial.Codec, "\n")
-	fmt.Print("OUTPUT CODEC::::::::", output.codec, "\n")
+	// fmt.Print("INPUT CODEC::::::::", input.codec, "\n")
+	// fmt.Print("INITIAL CODEC::::::::", initial.Codec, "\n")
+	// fmt.Print("OUTPUT CODEC::::::::", output.codec, "\n")
 
 	output.audioCodec = "copy"
 	output.rate = initial.Rate

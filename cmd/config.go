@@ -6,9 +6,11 @@ type Config struct {
 	Volume             string  `usage:"Set volume level"`
 	DryRun             bool    `usage:"Dry run"`
 	Crop               bool    `usage:"Autocrop black bars"`
+	CropDetectDuration float64 `usage:"Duration to detect (seconds)"`
 	OutputPath         string  `usage:"Output path"`
 	Rate               int     `usage:"(ffmpeg b:v) Video bitrate (k)"`
 	Codec              string  `usage:"(ffmpeg c:v) Video codec"`
+	Decoder            string  `usage:"Decoder"`
 	InputCodec         string  `usage:"Input decoder codec"`
 	VideoStream        int     `usage:"Audio stream index to use"`
 	AudioRate          int     `usage:"(ffmpeg b:a) Audio bitrate (k)"`
@@ -40,4 +42,6 @@ type Config struct {
 	Tonemap            string  `usage:"tonemap (mobius, hable, ...)"`
 	Tune               string  `usage:"tune (animation, film, ...)"`
 	Level              string  `usage:"level (3, 4.1, ...)"`
+	WatermarkFile      string  `usage:"Watermark file"`
+	WatermarkPosition  string  `usage:"Watermark position"`
 }

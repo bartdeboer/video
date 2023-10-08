@@ -82,22 +82,25 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	// Input stream crop options
 	if isHwAcceleratedDecode && (input.cropTop+input.cropBottom+input.cropLeft+input.cropRight) > 0 {
 		args = append(args,
-			"-crop", (strconv.FormatInt(int64(input.cropTop), 10) +
-				"x" + strconv.FormatInt(int64(input.cropBottom), 10) +
-				"x" + strconv.FormatInt(int64(input.cropLeft), 10) +
-				"x" + strconv.FormatInt(int64(input.cropRight), 10)),
+			"-crop", fmt.Sprintf("%dx%dx%dx%d", input.cropTop, input.cropBottom, input.cropLeft, input.cropTop),
+		)
+	}
+
+	if !isHwAcceleratedDecode && (input.cropTop+input.cropBottom+input.cropLeft+input.cropRight) > 0 {
+		swFilters = append(swFilters,
+			fmt.Sprintf("crop=%d:%d:%d:%d", input.width, input.height, input.cropLeft, input.cropTop),
 		)
 	}
 
 	// Input stream resize options
-	if isHwAcceleratedDecode && input.width != output.width {
+	if isHwAcceleratedDecode && (input.width != output.width || input.height != output.height) {
 		args = append(args,
 			"-resize", (strconv.FormatInt(int64(output.width), 10) +
 				"x" + strconv.FormatInt(int64(output.height), 10)),
 		)
 	}
 
-	if !isHwAcceleratedDecode && input.width != output.width {
+	if !isHwAcceleratedDecode && (input.width != output.width || input.height != output.height) {
 		swFilters = append(swFilters, ("scale=" +
 			strconv.FormatInt(int64(output.width), 10) + ":" +
 			strconv.FormatInt(int64(output.height), 10)),
@@ -107,10 +110,12 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	// fmt.Printf("HEIGHT: %d -> %d\n", output.height, output.height%16)
 	// fmt.Printf("WIDTH: %d -> %d\n", output.width, output.width%16)
 
+	// fmt.Print("HEIGHT", output.height, "\n")
+
 	_, hasStandardHeight := Sizes[output.height]
 
 	// Input stream pad options
-	if !hasStandardHeight && (output.height%16) > 0 || (output.width%16) > 0 {
+	if !hasStandardHeight && ((output.height%16) > 0 || (output.width%16) > 0) {
 		padWidth := int(math.Ceil((float64(output.width) / float64(16))) * 16)
 		padHeight := int(math.Ceil((float64(output.height) / float64(16))) * 16)
 		filters = append(filters, fmt.Sprintf("[v]pad=%d:%d:%d:%d,setsar=1[v]",
@@ -125,6 +130,10 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 	// Input stream file location
 	if input.file != "" {
 		args = append(args, "-i", input.file)
+	}
+
+	if initial.WatermarkFile != "" {
+		args = append(args, "-i", initial.WatermarkFile)
 	}
 
 	if output.audioDelay != 0 {
@@ -188,6 +197,16 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		// filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:-1[s]", initial.SubtitleStream, output.width))
 		filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:%d[s]", initial.SubtitleStream, output.width, output.height))
 		filters = append(filters, "[v][s]overlay[v]")
+	}
+
+	if initial.WatermarkFile != "" {
+		if initial.WatermarkPosition != "" {
+			// top-right: W-w-48:48
+			// bottom-left: 48:H-h-48
+			filters = append(filters, fmt.Sprintf("[v][1:v:0]overlay=%s[v]", initial.WatermarkPosition))
+		} else {
+			filters = append(filters, "[v][1:v:0]overlay[v]", initial.WatermarkPosition)
+		}
 	}
 
 	videoStream := "0:v"
