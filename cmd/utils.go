@@ -3,7 +3,6 @@ package cmd
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -59,28 +58,62 @@ func getKeyIntValue(input string, sep string) (string, int, error) {
 }
 
 func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, error) {
-	stdout, err := cmd.StdoutPipe()
-	// stdout, err := cmd.StderrPipe()
-	if err != nil {
-		log.Fatalf("cmd.StdoutPipe() failed with %s\n", err)
-	}
-	keyValues := map[string]string{}
-	scanner := bufio.NewScanner(stdout)
 
 	fmt.Printf("\n%+v\n\n", cmd)
 
-	cmd.Start()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("cmd.StdoutPipe() failed with %s", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("cmd.Start() failed with %s", err)
+	}
+
+	defer cmd.Wait() // Ensures that the command finishes and resources are cleaned up
+
+	scanner := bufio.NewScanner(stdout)
+	keyValues := make(map[string]string)
+
 	for scanner.Scan() {
 		text := strings.TrimSpace(scanner.Text())
 		if text == "" {
 			continue
 		}
-		fmt.Printf("%s\n", text)
 		key, value := getKeyStringValue(text, sep)
 		keyValues[key] = value
 	}
-	return keyValues, scanner.Err()
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scanner error: %s", err)
+	}
+
+	return keyValues, nil
 }
+
+// func getKeyValuesFromCommand(cmd *exec.Cmd, sep string) (map[string]string, error) {
+// 	stdout, err := cmd.StdoutPipe()
+// 	// stdout, err := cmd.StderrPipe()
+// 	if err != nil {
+// 		log.Fatalf("cmd.StdoutPipe() failed with %s\n", err)
+// 	}
+// 	keyValues := map[string]string{}
+// 	scanner := bufio.NewScanner(stdout)
+
+// 	fmt.Printf("\n%+v\n\n", cmd)
+
+// 	cmd.Start()
+// 	for scanner.Scan() {
+// 		text := strings.TrimSpace(scanner.Text())
+// 		if text == "" {
+// 			continue
+// 		}
+// 		fmt.Printf("%s\n", text)
+// 		key, value := getKeyStringValue(text, sep)
+// 		keyValues[key] = value
+// 	}
+// 	return keyValues, scanner.Err()
+// }
 
 func getSafePath(path string) string {
 	ext := filepath.Ext(path)
