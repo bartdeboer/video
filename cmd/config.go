@@ -30,6 +30,7 @@ type Config struct {
 	FontFile           string  `usage:"Font file"`
 	BurnSubtitles      bool    `usage:"Hardcodes the subtitles"`
 	BurnImageSubtitles bool    `usage:"Hardcodes the subtitle images"`
+	SubtitleBox        bool    `usage:"Displays a block behind the subtitles"`
 	SubtitleStream     int     `usage:"Subtitle stream index to use"`
 	ConstantQuality    int     `usage:"Constant Quality (0-63)"`
 	ConstantRateFactor int     `usage:"Constant Rate Factor (0-51)"`

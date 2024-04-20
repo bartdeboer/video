@@ -52,7 +52,6 @@ func init() {
 
 	rootCmd.AddCommand(encodeCmd)
 	rootCmd.AddCommand(bulkCmd)
-	rootCmd.AddCommand(vesCmd)
 
 	if argIndex := indexOfOsArgs("--preset"); argIndex != -1 {
 		valueIndex := argIndex + 1
@@ -79,7 +78,24 @@ func init() {
 		initial.ColorTransfer = "bt709"
 		initial.OptMetadata = false
 		// initial.WatermarkFile = "watermark-small.png"
-		initial.WatermarkPosition = "W-w-48:48"
+		// initial.WatermarkPosition = "W-w-48:48"
+		break
+	case "telegram-fair":
+		initial.Codec = "libx264"
+		initial.Size = "1080p"
+		initial.AudioRate = 144 // 128 = good
+		initial.AudioChannels = 2
+		initial.AudioCodec = "aac"
+		initial.AudioStream = 0
+		initial.DrawTitle = false
+		initial.Extension = "mp4"
+		// initial.ConstantQuality = 23 // 1080p:19 720p:23
+		initial.ConstantRateFactor = 23
+		initial.PixelFormat = "yuv420p"
+		initial.ColorTransfer = "bt709"
+		initial.OptMetadata = false
+		// initial.WatermarkFile = "watermark-small.png"
+		// initial.WatermarkPosition = "W-w-48:48"
 		break
 	case "telegram":
 		initial.Codec = "h264_nvenc"

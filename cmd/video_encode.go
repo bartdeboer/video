@@ -186,13 +186,36 @@ func (input *Video) getEncodeCommand(output *Video) *exec.Cmd {
 		srtFile := strings.TrimSuffix(input.file, ("."+input.extension)) + ".srt"
 		if _, err := os.Stat(srtFile); err == nil {
 			subFile = srtFile
+		} else {
+			fmt.Printf("Did not find .srt file: %s\n", srtFile)
 		}
 		subFile = strings.ReplaceAll(subFile, "\\", "/")
 		subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
-		filters = append(filters, fmt.Sprintf("[v]subtitles='%s'"+
-			":stream_index=%d"+
-			":force_style='Fontname=Arial,Shadow=0,Fontsize=16'"+
-			"[v]", subFile, initial.SubtitleStream))
+
+		styleOptions := "Fontname=Arial,Shadow=0,Fontsize=16"
+		if initial.SubtitleBox {
+			// Add the styles for black box with transparency
+			styleOptions += ",BorderStyle=3,Outline=1,Shadow=0,BackColour=&H80000000"
+		}
+
+		filters = append(filters, fmt.Sprintf("[v]subtitles='%s':stream_index=%d:force_style='%s'[v]", subFile, initial.SubtitleStream, styleOptions))
+
+		// if initial.BurnSubtitles {
+		// 	subFile := input.file
+		// 	srtFile := strings.TrimSuffix(input.file, ("."+input.extension)) + ".srt"
+		// 	if _, err := os.Stat(srtFile); err == nil {
+		// 		subFile = srtFile
+		// 	} else {
+		// 		fmt.Printf("Did not find .srt file: %s\n", srtFile)
+		// 	}
+		// 	subFile = strings.ReplaceAll(subFile, "\\", "/")
+		// 	subFile = strings.ReplaceAll(subFile, ":/", "\\:/")
+		// 	filters = append(filters, fmt.Sprintf("[v]subtitles='%s'"+
+		// 		":stream_index=%d"+
+		// 		":force_style='Fontname=Arial,Shadow=0,Fontsize=16'"+
+		// 		"[v]", subFile, initial.SubtitleStream))
+		// }
+
 	} else if initial.BurnImageSubtitles {
 		// filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:-1[s]", initial.SubtitleStream, output.width))
 		filters = append(filters, fmt.Sprintf("[0:s:%d]scale=%d:%d[s]", initial.SubtitleStream, output.width, output.height))
