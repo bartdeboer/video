@@ -162,15 +162,6 @@ func SetInitial() ([]string, error) {
 
 	args, flags := flag.ParseArgs(os.Args[1:])
 
-	{
-		_, helpExists := flags["help"]
-		_, hExists := flags["h"]
-		if helpExists || hExists {
-			flag.PrintDefaults(&initial)
-			os.Exit(0)
-		}
-	}
-
 	if preset, exists := flags["preset"]; exists {
 		SetPreset(preset)
 	}
@@ -178,6 +169,16 @@ func SetInitial() ([]string, error) {
 	err := flag.SetFlags(&initial, flags)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing command-line arguments: %v", err)
+	}
+
+	{
+		_, helpExists := flags["help"]
+		_, hExists := flags["h"]
+		if helpExists || hExists {
+			fmt.Println("Usage:")
+			flag.PrintDefaults(&initial)
+			os.Exit(0)
+		}
 	}
 
 	return args, nil
@@ -200,7 +201,7 @@ func main() {
 	case "encode":
 		encode(args[1])
 	case "bulk":
-
+		bulkEncode(args[1])
 	}
 
 }

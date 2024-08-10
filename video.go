@@ -154,14 +154,16 @@ func (input *Video) detectVideo(streamIndex int) (int, int) {
 	input.baseName = filepath.Base(strings.TrimSuffix(input.file, ("." + input.extension)))
 	// r, _ := regexp.Compile("\\[^\\]]*\\]")
 	// r, _ := regexp.Compile("\\.[0-9]{4}\\.(.*)$")
-	r, _ := regexp.Compile("^(.*)[. ]([0-9]{4})[. ](.*)$")
-	submatches := r.FindStringSubmatch(input.baseName)
-	if len(submatches) == 4 {
-		input.title = submatches[1]
-		input.year = submatches[2]
-		input.extraInfo = submatches[3]
-		input.baseName = input.title + "." + input.year
-	}
+
+	// Auto simplify titles
+	// r, _ := regexp.Compile("^(.*)[. ]([0-9]{4})[. ](.*)$")
+	// submatches := r.FindStringSubmatch(input.baseName)
+	// if len(submatches) == 4 {
+	// 	input.title = submatches[1]
+	// 	input.year = submatches[2]
+	// 	input.extraInfo = submatches[3]
+	// 	input.baseName = input.title + "." + input.year
+	// }
 
 	// I don't know what the purpose was of this:
 	// input.baseName = r.ReplaceAllString(input.baseName, "")

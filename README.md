@@ -1,12 +1,12 @@
-# Video cli program
+# Video
 
-`video` is a ffmpeg wrapper.
+`video` is an ffmpeg wrapper.
 
 ## !! Important !!
 
-This is by no means intended to be an elegant Go program. It was developed for
-personal convenience to pragmatically learn, document and somewhat structure
-complex ffmpeg features replacing previous solutions that involved even more
-complex and ugly batch and bash scripts.
+This is by no means intended as an example for an elegant and robust Go program.
+It was pragmatically developed for personal convenience to learn, document,
+structure and automate various complex ffmpeg tasks. It's a step forward from
+previous solutions that involved even more complex and messy batch and bash scripts.
 
 There may be future attempts to structure this more elegantly.

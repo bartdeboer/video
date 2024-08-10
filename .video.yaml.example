@@ -1,0 +1,6 @@
+encode:
+    codec: hevc_nvenc
+    extension: mkv
+    fontfile: C\\:/Windows/Fonts/impact.ttf
+    outputpath: D:\output-path
+    ffmpegpath: C:\Standalone\ffmpeg-2023-04-10-git-b18a9c2971-full_build\bin
