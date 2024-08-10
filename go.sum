@@ -1,0 +1,9 @@
+github.com/bartdeboer/flag v0.0.1 h1:tFRdflpJ3by42XUUq/kWVlg3Am+DxLMqzUn2hfq373A=
+github.com/bartdeboer/flag v0.0.1/go.mod h1:z8OG8jfgNZDQ99j1Z3L6sltQgdDbsV7je1UxnSwDpYQ=
+github.com/bartdeboer/flag v0.0.2 h1:19IrRvRyXBZPuemEI6XzKoISiJQBhzdJL7t9NjdYDfY=
+github.com/bartdeboer/flag v0.0.2/go.mod h1:z8OG8jfgNZDQ99j1Z3L6sltQgdDbsV7je1UxnSwDpYQ=
+github.com/bartdeboer/words v0.0.2 h1:7NTIBtiLOlPnQ72x4pwxkr/RZFoDVl32BVKNoRTMh7w=
+github.com/bartdeboer/words v0.0.2/go.mod h1:PZTW5H9DV7Fsy6ap/78IrcMRZ7/lwsAAtow2aFXHj9A=
+gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
+gopkg.in/yaml.v3 v3.0.1 h1:fxVm/GzAzEWqLHuvctI91KS9hhNmmWOoWu0XTYJS7CA=
+gopkg.in/yaml.v3 v3.0.1/go.mod h1:K4uyk7z7BCEPqu6E+C64Yfv1cQ7kz7rIZviUmN+EgEM=
